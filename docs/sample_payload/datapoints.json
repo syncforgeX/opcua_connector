@@ -1,0 +1,20 @@
+{
+  "data_points": [
+    {
+      "nodeid": "ns=3;i=1001",
+      "datatype": "int32",
+      "alias": "spindle_speed"
+    },
+    {
+      "nodeid": "ns=3;i=1002",
+      "datatype": "float",
+      "alias": "motor_temp"
+    },
+    {
+      "nodeid": "ns=3;i=1003",
+      "datatype": "boolean",
+      "alias": "alarm_status"
+    }
+  ]
+}
+
