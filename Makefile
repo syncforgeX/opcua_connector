@@ -1,50 +1,41 @@
-
 # Variables
 CC = gcc
-CFLAGS = -I./include/
-LIBS = -lmicrohttpd -lpthread -lcjson -ltaos
+CFLAGS = -I./include -DCURRENT_LOG_LEVEL=LOG_LEVEL_DEBUG
+LIBS = -lmicrohttpd -lcjson -lpthread
 
 # Directories
 SRC_DIR = src
 BIN_DIR = bin
 
 # Source and object files
-SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/thread.c
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%.o, $(SRCS))
 
 # Target executable
-TARGET = $(BIN_DIR)/data_collector
-
-# Docker image name and version
-DOCKER_IMAGE = data_collector
-DOCKER_VERSION = $(shell cat VERSION)
-DOCKER_TAG = $(DOCKER_IMAGE):$(DOCKER_VERSION)
+TARGET = $(BIN_DIR)/iot_connector
 
 # Default rule
 all: $(BIN_DIR) $(TARGET)
 
 # Build target
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(OBJS) $(LIBS) -o $@
 
 # Build object files
 $(BIN_DIR)/%.o: $(SRC_DIR)/%.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Create bin directory
+# Create bin directory if it doesn't exist
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-# Build Docker image with version
-docker:
-	docker build -t $(DOCKER_TAG) .
-
 # Clean up build files
 clean:
-	rm -rf $(BIN_DIR) $(TARGET)
+	rm -rf $(BIN_DIR)
 
 # Run the binary
 run: $(TARGET)
 	./$(TARGET)
-.PHONY: all clean docker
+
+.PHONY: all clean run
 
