@@ -26,4 +26,3 @@ typedef struct {
 extern DeviceConfig g_device_config;
 
 #endif // DEVICE_CONFIG_H
-

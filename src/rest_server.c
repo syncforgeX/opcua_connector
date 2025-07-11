@@ -8,13 +8,47 @@
 #include "rest_server.h"
 
 struct ConnectionInfo {
-    char *data;
-    size_t size;
+	char *data;
+	size_t size;
 };
 
+void save_device_config(cJSON  *json_data) {
+        cJSON *device_id = cJSON_GetObjectItem(json_data, "device_name");
+        if (!device_id || !cJSON_IsString(device_id)) {
+                log_error("[ERROR] Invalid device JSON format.\n");
+                return;
+        }
+
+        char filename[256];
+        snprintf(filename, sizeof(filename), "metadata/%s.json", device_id->valuestring);
+
+        FILE *file = fopen(filename, "w");
+        if (!file) {
+                log_error("Failed to save device config for %s PATH %s\n", device_id->valuestring, filename);
+                return;
+        }
+
+        char *json_string = cJSON_Print(json_data);
+        if (json_string) {
+                fprintf(file, "%s", json_string);
+                free(json_string); // Free allocated memory
+        }
+
+	log_debug("Device Configuration written to: %s",filename);
+        fclose(file);
+}
+
 static int handle_post_payload(const char *json) {
-    syslog(LOG_INFO, "Received POST payload");
-    return process_json_payload(json);
+	cJSON *json_data = cJSON_Parse(json);
+	if (json_data) {
+		save_device_config(json_data);
+		cJSON_Delete(json_data);
+	} else {
+		log_error("Invalid JSON received.\n");
+	}
+
+	syslog(LOG_INFO, "Received POST payload");
+	return process_json_payload(json);
 }
 
 // Function to send response
