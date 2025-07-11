@@ -5,4 +5,3 @@
 int process_json_payload(const char *json);
 
 #endif
-
