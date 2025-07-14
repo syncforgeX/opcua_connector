@@ -111,14 +111,6 @@ enum MHD_Result handle_post_request(void *cls,
                "{\"status\": \"success\", \"message\": \" device Configuration "
                "updated successfully\"}");
 
-      cJSON *json_data = cJSON_Parse(con_info->data);
-      if (json_data) {
-        // save_taos_config(json_data);
-        // cJSON_Delete(json_data);
-      } else {
-        printf("[ERROR] Invalid config JSON received.\n");
-      }
-
     } else {
       snprintf(response_text, sizeof(response_text),
                "{\"status\": \"error\", \"message\": \"Device Configuration "
@@ -127,6 +119,8 @@ enum MHD_Result handle_post_request(void *cls,
     free(con_info->data);
     free(con_info);
     return send_response(connection, response_text);
+  } else{
+	log_error("User Post Request method: %s URL: %s ", method, url);
   }
 
   return MHD_NO;

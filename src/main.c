@@ -2,17 +2,63 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <syslog.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <string.h>
+#include "json_utils.h"
 
 static volatile int running = 1;
 
 void handle_signal(int sig) { running = 0; }
 
+#define METADATA_DIR "./metadata"
+#define MAX_PATH 256
+
+void load_device_config() {
+    DIR *dir = opendir(METADATA_DIR);
+    if (!dir) {
+        log_error("Metadata directory not found: %s", METADATA_DIR);
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strstr(entry->d_name, ".json")) {
+            char filepath[MAX_PATH];
+            snprintf(filepath, sizeof(filepath), "%s/%s", METADATA_DIR, entry->d_name);
+            log_info("Loading config from: %s", filepath);
+
+            FILE *fp = fopen(filepath, "r");
+            if (!fp) {
+                log_error("Failed to open config file: %s", filepath);
+                continue;
+            }
+
+            fseek(fp, 0, SEEK_END);
+            long size = ftell(fp);
+            rewind(fp);
+
+            char *data = malloc(size + 1);
+            fread(data, 1, size, fp);
+            data[size] = '\0';
+            fclose(fp);
+
+	    process_json_payload(data);//parse the config data in globallaly
+
+            free(data);
+            break; // Load only first config file for now
+        }
+    }
+
+    closedir(dir);
+}
+
 int main() {
   openlog("iot_connector", LOG_PID | LOG_CONS, LOG_USER);
   log_info("Starting IoT connector server...");
   signal(SIGINT, handle_signal);
+
+  load_device_config();  // <<< Call this before HTTP starts
 
   struct MHD_Daemon *daemon_post =
       MHD_start_daemon(MHD_USE_SELECT_INTERNALLY, POST_PORT, NULL, NULL,
