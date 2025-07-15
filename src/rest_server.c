@@ -20,7 +20,7 @@ void save_device_config(cJSON *json_data) {
   }
 
   char filename[256];
-  snprintf(filename, sizeof(filename), "metadata/%s.json",
+  snprintf(filename, sizeof(filename), "%s/%s.json",METADATA_DIR,
            device_id->valuestring);
 
   FILE *file = fopen(filename, "w");
@@ -111,14 +111,6 @@ enum MHD_Result handle_post_request(void *cls,
                "{\"status\": \"success\", \"message\": \" device Configuration "
                "updated successfully\"}");
 
-      cJSON *json_data = cJSON_Parse(con_info->data);
-      if (json_data) {
-        // save_taos_config(json_data);
-        // cJSON_Delete(json_data);
-      } else {
-        printf("[ERROR] Invalid config JSON received.\n");
-      }
-
     } else {
       snprintf(response_text, sizeof(response_text),
                "{\"status\": \"error\", \"message\": \"Device Configuration "
@@ -127,7 +119,138 @@ enum MHD_Result handle_post_request(void *cls,
     free(con_info->data);
     free(con_info);
     return send_response(connection, response_text);
+  } else{
+	log_error("User Post Request method ERROR: %s URL: %s ", method, url);
   }
 
   return MHD_NO;
 }
+
+enum MHD_Result handle_get_request(
+    void *cls,
+    struct MHD_Connection *connection,
+    const char *url,
+    const char *method,
+    const char *version,
+    const char *upload_data,
+    uint64_t *upload_data_size,
+    void **con_cls)
+{
+    (void)cls;
+    (void)version;
+    (void)upload_data;
+    (void)upload_data_size;
+    (void)con_cls;
+
+    log_debug("[DEBUG] handle_request called for URL: %s\n", url);
+    fflush(stdout);
+
+    if (strcmp(method, "GET") != 0)
+        return MHD_NO;
+
+    // Only accept exact match: /deviceconfig
+    if (strcmp(url, "/deviceconfig") != 0)
+        return MHD_NO;
+
+    DIR *dir = opendir(METADATA_DIR);
+    if (!dir) {
+        syslog(LOG_ERR, "Failed to open metadata directory");
+        const char *msg = "{\"error\":\"Failed to open metadata directory\"}";
+        struct MHD_Response *resp = MHD_create_response_from_buffer(strlen(msg), (void *)msg, MHD_RESPMEM_PERSISTENT);
+        int ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, resp);
+        MHD_destroy_response(resp);
+        return ret;
+    }
+
+    char *result = malloc(GET_PAYLOAD_SIZE);
+    if (!result) {
+        closedir(dir);
+        return MHD_NO;
+    }
+
+    strcpy(result, "[");
+    int first = 1;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG && strstr(entry->d_name, ".json")) {
+            char filepath[512];
+            snprintf(filepath, sizeof(filepath), "%s/%s", METADATA_DIR, entry->d_name);
+
+            FILE *fp = fopen(filepath, "r");
+            if (!fp) continue;
+
+            char filebuf[4096];
+            size_t len = fread(filebuf, 1, sizeof(filebuf) - 1, fp);
+            fclose(fp);
+            filebuf[len] = '\0';
+
+            if (!first) strcat(result, ",");
+            strncat(result, filebuf, GET_PAYLOAD_SIZE - strlen(result) - 1);
+            first = 0;
+        }
+    }
+    closedir(dir);
+    strcat(result, "]");
+
+    struct MHD_Response *response = MHD_create_response_from_buffer(strlen(result), result, MHD_RESPMEM_MUST_FREE);
+    MHD_add_response_header(response, "Content-Type", "application/json");
+
+    int ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
+    MHD_destroy_response(response);
+    return ret;
+}
+
+enum MHD_Result handle_del_request(void *cls, struct MHD_Connection *connection,
+                                   const char *url, const char *method,
+                                   const char *version, const char *upload_data,
+                                   size_t *upload_data_size, void **con_cls) {
+    (void)cls;
+    (void)version;
+    (void)upload_data;
+    (void)upload_data_size;
+    (void)con_cls;
+
+    log_debug("[DEBUG] handle_DELETE called for URL: %s\n", url);
+    fflush(stdout);
+    if (strcmp(method, "DELETE") != 0)
+        return MHD_NO;
+
+    const char *prefix = "/deviceconfig/";
+    if (strncmp(url, prefix, strlen(prefix)) != 0)
+        return MHD_NO;
+
+    const char *device_name = url + strlen(prefix);
+    if (strlen(device_name) == 0)
+        return MHD_NO;
+
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path), "%s/%s.json", METADATA_DIR, device_name);
+
+    if (access(path, F_OK) != 0) {
+        const char *msg = "{\"error\":\"Device config not found\"}";
+        struct MHD_Response *response = MHD_create_response_from_buffer(strlen(msg),
+                                            (void *)msg, MHD_RESPMEM_PERSISTENT);
+        int ret = MHD_queue_response(connection, MHD_HTTP_NOT_FOUND, response);
+        MHD_destroy_response(response);
+        return ret;
+    }
+
+    if (remove(path) != 0) {
+        syslog(LOG_ERR, "Failed to delete metadata file: %s", path);
+        const char *msg = "{\"error\":\"Failed to delete device config\"}";
+        struct MHD_Response *response = MHD_create_response_from_buffer(strlen(msg),
+                                            (void *)msg, MHD_RESPMEM_PERSISTENT);
+        int ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, response);
+        MHD_destroy_response(response);
+        return ret;
+    }
+
+    const char *msg = "{\"status\":\"Device config deleted successfully\"}";
+    struct MHD_Response *response = MHD_create_response_from_buffer(strlen(msg),
+                                        (void *)msg, MHD_RESPMEM_PERSISTENT);
+    int ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
+    MHD_destroy_response(response);
+    return ret;
+}
+

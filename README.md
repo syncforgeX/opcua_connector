@@ -60,4 +60,44 @@ You’ll see the same logs appear there.
 journalctl -t iot_connector -f
 
 # User input
-curl -X POST http://localhost:8080/deviceconfigure   -H "Content-Type: application/json"   -d '{"device_name":"cnc_device_001","opcua":{"endpoint_url":"opc.tcp://192.168.1.100:4840","username":"opcuser","password":"opcpass"},"mqtt":{"broker_url":"mqtts://broker.example.com:8883","username":"mqttuser","password":"mqttpass","publish_interval_ms":1000,"base_topic":"factory/cnc/device001","tls_enabled":true,"certificate_path":"/tmp/device001-cert.pem","certificate_content":"-----BEGIN CERTIFICATE-----\nMIID...END CERTIFICATE-----"}}'
+curl -X POST http://localhost:8080/deviceconfigure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_name": "cnc_device_001",
+    "opcua": {
+      "endpoint_url": "opc.tcp://192.168.1.100:4840",
+      "username": "opcuser",
+      "password": "opcpass"
+    },
+    "mqtt": {
+      "broker_url": "mqtts://broker.example.com:8883",
+      "username": "mqttuser",
+      "password": "mqttpass",
+      "publish_interval_ms": 1000,
+      "base_topic": "factory/cnc/device001",
+      "tls_enabled": true,
+      "certificate_path": "/tmp/device001-cert.pem",
+      "certificate_content": "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgI...YourCAHere...\n-----END CERTIFICATE-----"
+    },
+    "data_points": [
+      {
+        "namespace": 3,
+        "identifier": 1001,
+        "datatype": "int32",
+        "alias": "spindle_speed"
+      },
+      {
+        "namespace": 3,
+        "identifier": 1002,
+        "datatype": "float",
+        "alias": "motor_temp"
+      },
+      {
+        "namespace": 3,
+        "identifier": 1003,
+        "datatype": "boolean",
+        "alias": "alarm_status"
+      }
+    ]
+  }'
+
