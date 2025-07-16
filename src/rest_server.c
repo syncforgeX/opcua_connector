@@ -1,3 +1,4 @@
+#include "device_config.h"
 #include "rest_server.h"
 #include "json_utils.h"
 #include <cjson/cJSON.h>
@@ -154,7 +155,7 @@ enum MHD_Result handle_get_request(
 
     DIR *dir = opendir(METADATA_DIR);
     if (!dir) {
-        syslog(LOG_ERR, "Failed to open metadata directory");
+        log_error("Failed to open metadata directory");
         const char *msg = "{\"error\":\"Failed to open metadata directory\"}";
         struct MHD_Response *resp = MHD_create_response_from_buffer(strlen(msg), (void *)msg, MHD_RESPMEM_PERSISTENT);
         int ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, resp);
@@ -176,6 +177,7 @@ enum MHD_Result handle_get_request(
         if (entry->d_type == DT_REG && strstr(entry->d_name, ".json")) {
             char filepath[512];
             snprintf(filepath, sizeof(filepath), "%s/%s", METADATA_DIR, entry->d_name);
+	    log_debug("File present in directory %s",filepath);
 
             FILE *fp = fopen(filepath, "r");
             if (!fp) continue;
@@ -228,6 +230,7 @@ enum MHD_Result handle_del_request(void *cls, struct MHD_Connection *connection,
     snprintf(path, sizeof(path), "%s/%s.json", METADATA_DIR, device_name);
 
     if (access(path, F_OK) != 0) {
+	log_error("Device config not found %s",path);
         const char *msg = "{\"error\":\"Device config not found\"}";
         struct MHD_Response *response = MHD_create_response_from_buffer(strlen(msg),
                                             (void *)msg, MHD_RESPMEM_PERSISTENT);
@@ -237,7 +240,7 @@ enum MHD_Result handle_del_request(void *cls, struct MHD_Connection *connection,
     }
 
     if (remove(path) != 0) {
-        syslog(LOG_ERR, "Failed to delete metadata file: %s", path);
+        log_error("Failed to delete metadata file: %s", path);
         const char *msg = "{\"error\":\"Failed to delete device config\"}";
         struct MHD_Response *response = MHD_create_response_from_buffer(strlen(msg),
                                             (void *)msg, MHD_RESPMEM_PERSISTENT);
@@ -245,6 +248,9 @@ enum MHD_Result handle_del_request(void *cls, struct MHD_Connection *connection,
         MHD_destroy_response(response);
         return ret;
     }
+    
+    g_device_config.active = false;
+    log_debug("Device config deleted and deactivate the Thread successfully %s ",path);
 
     const char *msg = "{\"status\":\"Device config deleted successfully\"}";
     struct MHD_Response *response = MHD_create_response_from_buffer(strlen(msg),

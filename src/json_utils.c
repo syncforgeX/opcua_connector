@@ -153,6 +153,9 @@ int process_json_payload(const char *json) {
 
     log_device_config(&g_device_config);
     cJSON_Delete(root);
+
+    g_device_config.active = true;
+    log_debug("Device getting Active");
     return 0;
 }
 
