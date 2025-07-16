@@ -6,6 +6,8 @@
 #include <dirent.h>
 #include <string.h>
 #include "json_utils.h"
+#include <pthread.h>
+#include "opcua_client.h"
 
 static volatile int running = 1;
 
@@ -87,10 +89,23 @@ int main() {
 	}
 	log_info("DELETE server running on port %d", DEL_PORT);
 
+	// OPC UA Worker Thread
+	pthread_t opcua_thread;
+	if (pthread_create(&opcua_thread, NULL, opcua_client_thread, NULL) != 0) {
+        log_error("Failed to create OPC UA thread");
+        return 1;
+	}
+
 	// Run until Ctrl+C
 	while (running) {
 		sleep(1);
 	}
+
+	// Notify thread to stop (if needed)
+	//g_device_config.active = false;
+
+	// Wait for thread to exit
+	//pthread_join(opcua_thread, NULL);
 
 	log_info("Shutting down servers...");
 	MHD_stop_daemon(daemon_post);

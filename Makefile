@@ -1,15 +1,16 @@
 # Variables
 CC = gcc
 CFLAGS = -I./include -DCURRENT_LOG_LEVEL=LOG_LEVEL_DEBUG
-LIBS = -lmicrohttpd -lcjson -lpthread
+LIBS = -lmicrohttpd -lcjson -lpthread -lopen62541
 
 # Directories
 SRC_DIR = src
 BIN_DIR = bin
 
 # Source and object files
-SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c
-OBJS = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%.o, $(SRCS))
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/opcua_client.c
+OBJS = $(SRCS:.c=.o)
+OBJS := $(patsubst src/%,bin/%,$(OBJS))
 
 # Target executable
 TARGET = $(BIN_DIR)/iot_connector
