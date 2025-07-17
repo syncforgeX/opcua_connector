@@ -8,7 +8,7 @@ SRC_DIR = src
 BIN_DIR = bin
 
 # Source and object files
-SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/opcua_client.c
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/opcua_client.c $(SRC_DIR)/mqtt.c
 OBJS = $(SRCS:.c=.o)
 OBJS := $(patsubst src/%,bin/%,$(OBJS))
 

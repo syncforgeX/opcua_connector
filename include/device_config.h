@@ -77,6 +77,4 @@ typedef struct {
 
 } OPCUAValue;
 
-extern OPCUAValue g_opcua_values[MAX_DATA_POINTS];
-
 #endif // DEVICE_CONFIG_H

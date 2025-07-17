@@ -8,13 +8,12 @@
 #include <string.h>
 #include <inttypes.h>
 #include "device_config.h"
-
-OPCUAValue g_opcua_values[MAX_DATA_POINTS];
+#include "mqtt.h"
 
 #define MAX_RECONNECT_ATTEMPTS 5
 
-void log_opcua_values() {
-	for (int i = 0; i < MAX_DATA_POINTS; i++) {
+void log_opcua_values(OPCUAValue *g_opcua_values) {
+	for (int i = 0; i < g_device_config.num_data_points; ++i) {
 		OPCUAValue *val = &g_opcua_values[i];
 		if (!val->ready)
 			continue;  // Skip if data is not ready
@@ -67,13 +66,15 @@ void log_opcua_values() {
 }
 
 void *opcua_client_thread(void *arg) {
-	log_info("OPC UA thread started");
+	OPCUAValue g_opcua_values[MAX_DATA_POINTS];
+	bool *tid_sts = (bool *)arg;
+	log_info("OPC UA thread started ......");
 
 	UA_Client *client = NULL;
 	UA_StatusCode status;
 	int reconnect_attempts = 0;
 
-	while (1) {
+	while (*tid_sts) {
 		if (!g_device_config.active) {
 			log_debug("OPC UA inactive, waiting...");
 			sleep(1);
@@ -155,7 +156,6 @@ void *opcua_client_thread(void *arg) {
 				}
 
 				val_out->ready = true;
-				log_opcua_values();//To print all stored OPC UA values (g_opcua_values[]) 
 
 			} else {
 				val_out->type = TYPE_UNKNOWN;
@@ -164,11 +164,19 @@ void *opcua_client_thread(void *arg) {
 			UA_Variant_clear(&value);
 		}
 
+		log_opcua_values(g_opcua_values);//To print all stored OPC UA values (g_opcua_values[]) 
+		if(data_collection(g_opcua_values)){
+			log_error("ERROR: Parse Payload data_collection failed to Process");
+		}
 		sleep(g_device_config.mqtt.publish_interval_ms / 1000); // avoid busy polling
 	}
 
-	if (client)
+	if (client) {
+		UA_Client_disconnect(client);
 		UA_Client_delete(client);
+	}
+
+	log_debug("OPCUA_Client Thread unwinded properly ... ");
 
 	return NULL;
 }
