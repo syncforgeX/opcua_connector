@@ -1,14 +1,14 @@
 # Variables
 CC = gcc
 CFLAGS = -I./include -DCURRENT_LOG_LEVEL=LOG_LEVEL_DEBUG
-LIBS = -lmicrohttpd -lcjson -lpthread -lopen62541
+LIBS = -lmicrohttpd -lcjson -lpthread -lopen62541 -lpaho-mqtt3c -lrt
 
 # Directories
 SRC_DIR = src
 BIN_DIR = bin
 
 # Source and object files
-SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/opcua_client.c $(SRC_DIR)/mqtt.c
+SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c $(SRC_DIR)/opcua_client.c $(SRC_DIR)/mqtt.c $(SRC_DIR)/mqtt_queue.c
 OBJS = $(SRCS:.c=.o)
 OBJS := $(patsubst src/%,bin/%,$(OBJS))
 

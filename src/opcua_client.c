@@ -181,3 +181,58 @@ void *opcua_client_thread(void *arg) {
 	return NULL;
 }
 
+static timer_t opcua_timerid;                           // Timer ID
+static pthread_t opcua_tid;                             //thread ID
+
+static volatile uint8_t timer_flag = INIT_VAL;           // Flag to be monitored
+static volatile uint8_t timer_count = INIT_VAL;         // Timer count variable
+
+// Timer handler function
+static void opcua_timer_handler(union sigval sv) {
+        timer_count++;                                  // Increment the timer count every 1 second
+        DataDelay_cntr++;                               // free running counter for data delay
+        // printf("Timer callback: Timer count = %d\n", timer_count);
+
+        // If the timer count completes 1 second, set the timer_flag
+        if (timer_count >= 1) {
+                if(!timer_flag)                         //if timer is 0 then only flag change to 1 poll start
+                        timer_flag = SET;               // Set the timer_flag
+
+                timer_count = CLEAR;                    // Reset the timer count for the next cycle
+        }
+}
+
+// Initialization function
+static bool opcua_timer_init() {
+        struct sigevent sev;
+        struct itimerspec its;
+
+        // Configure the timer event to call the timer_handler function
+        sev.sigev_notify = SIGEV_THREAD;                // Notify via a thread
+        sev.sigev_value.sival_ptr = &opcua_timerid;     // Pass timer ID to the handler
+        sev.sigev_notify_function = opcua_timer_handler;// Timer handler function
+        sev.sigev_notify_attributes = NULL;             // Default thread attributes
+
+        // Create the timer
+        if (timer_create(CLOCK_REALTIME, &sev, &opcua_timerid) == -1) {
+                perror("Failed to create timer");
+                return ENOT_OK;
+        }
+
+        // Configure the timer: 1-second interval
+        its.it_value.tv_sec = OPCUA_TIMER_INITIAL_START;// Initial expiration in seconds
+        its.it_value.tv_nsec = 0;                       // Initial expiration in nanoseconds
+        its.it_interval.tv_sec = OPCUA_INTERVAL;        // Periodic interval in seconds
+        its.it_interval.tv_nsec = 0;                    // Periodic interval in nanoseconds
+
+        // Start the timer
+        if (timer_settime(opcua_timerid, 0, &its, NULL) == -1) {
+                perror("Failed to start timer");
+                return ENOT_OK;
+        }
+
+        printf("Timer initialized and started.\n");
+        return E_OK;
+}
+
+
