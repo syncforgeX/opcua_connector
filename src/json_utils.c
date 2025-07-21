@@ -115,7 +115,7 @@ int process_json_payload(const char *json) {
         strncpy(g_device_config.mqtt.certificate_path, cert_path->valuestring,
                 sizeof(g_device_config.mqtt.certificate_path) - 1);
     if (cJSON_IsString(cert_content)) {
-        write_cert_to_file(g_device_config.mqtt.certificate_path,
+        write_cert_to_file(MQTT_CERTS_PATH,
                            cert_content->valuestring);
     }
 

@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <open62541/client.h>
 
+#define MQTT_CERTS_PATH "/etc/opcua_connector/certs/mqtt_cert.pem"
+
 typedef struct {
     int namespace;
     int identifier;

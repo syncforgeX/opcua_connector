@@ -14,7 +14,7 @@ make
 
 # Step 6: Verify dependencies
 echo "Verifying dependencies..."
-ldd bin/device_focas_c
+ldd bin/iot_connector
 
 make run
 

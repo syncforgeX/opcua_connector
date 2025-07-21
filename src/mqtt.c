@@ -40,7 +40,7 @@ void publish_message(const char *message) {
         if (rc != MQTTCLIENT_SUCCESS) {
                 fprintf(stderr, "Failed to publish message: %s (Error: %d)\n", message, rc);
         } else {
-                printf("Message published: %s\n", message);
+                log_debug("Message published: %s\n", message);
                 MQTTClient_waitForCompletion(client, token, TIMEOUT);
         }   
 }
@@ -141,7 +141,7 @@ static bool mqtt_timer_init() {
                 perror("timer_settime failed");
                 return ENOT_OK;
         }
-        printf("MQTT Timer init done\n");
+        log_debug("MQTT Timer init done\n");
         return E_OK;
 }
 
@@ -157,23 +157,23 @@ static void *mqtt_thread(void *arg) {
                         if (mqtt_data.json_ready) {
                                 if (MQTTClient_isConnected(client)) {                   // Check if the client is connected to the broker
                                         if (dequeue(&queue, json_payload)) {      // If connected, publish the message
-                                                printf("MQ_ERR: Failed to dequeue message\n");
+                                                log_debug("MQ_ERR: Failed to dequeue message\n");
                                         }
                                         publish_message(json_payload);
                                         mqtt_data.json_ready = false;                   // Reset the flag after sending
                                 } else {                                                // Attempt to reconnect if the client is not connected
                                         if (reconnect_mqtt() == MQTTCLIENT_SUCCESS) {   // If reconnection is successful, publish the message
                                                 if (dequeue(&queue, json_payload)) {
-                                                        printf("MQ_ERR: Failed to dequeue message after reconnect \n");
+                                                        log_debug("MQ_ERR: Failed to dequeue message after reconnect \n");
                                                 }
                                                 publish_message(json_payload);
                                                 mqtt_data.json_ready = false;           // Reset the flag after sending
                                         } else {
-                                                printf("Unable to reconnect to MQTT broker. Retrying...\n");
+                                                log_debug("Unable to reconnect to MQTT broker. Retrying...\n");
                                         }
                                 }
                         } else {
-                                printf("JSON payload not ready. Retrying...\n");
+                                log_debug("JSON payload not ready. Retrying...\n");
                         }
 
                         mqtt_flag = CLEAR;

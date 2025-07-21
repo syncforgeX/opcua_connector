@@ -1,0 +1,13 @@
+[Unit]
+Description=OPC UA MQTT IoT Connector
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/opcua_wrapper.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+

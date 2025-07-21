@@ -10,7 +10,7 @@
 #define GET_PORT 8081
 #define DEL_PORT 8082
 
-#define METADATA_DIR "./metadata"
+#define METADATA_DIR "/etc/opcua_connector/metadata"
 #define MAX_PATH 100
 #define GET_PAYLOAD_SIZE 8192
 

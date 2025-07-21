@@ -126,3 +126,123 @@ curl --location --request GET 'http://10.20.32.132:8081/deviceconfig'
 curl --location --request DELETE 'http://localhost:8082/deviceconfig/cnc_device_002'
 ```
 
+# 🧠 OPC UA MQTT IoT Connector
+
+This project provides an IoT connector that bridges **OPC UA devices** to an **MQTT broker**. It is designed to run as a systemd service on Linux systems, allowing automatic startup and monitoring.
+
+---
+
+## 📆 Prerequisites
+
+* GCC / Make
+* `systemd` (for running as a service)
+* `mosquitto` or other MQTT broker (locally or remotely)
+* Access to build tools and necessary libraries (e.g., `libpaho-mqtt`, `open62541`, etc.)
+
+---
+
+## ⚙️ Build and Install
+
+Run the following commands to build and install the connector:
+
+```bash
+make clean
+make
+sudo make uninstall
+sudo make install
+```
+
+### 🛠 What Each Command Does
+
+* `make clean`
+  Cleans any previous builds.
+
+* `make`
+  Compiles the application and generates the binary.
+
+* `sudo make uninstall`
+  Removes installed files (binary, config, systemd service).
+
+* `sudo make install`
+  Installs the binary, config, wrapper script, and:
+
+  * Creates `/etc/opcua_connector/metadata/` and `/etc/opcua_connector/certs/` directories
+  * Copies config files to `/etc/opcua_connector/`
+  * Installs the systemd service file
+  * Reloads systemd daemon
+  * Enables and starts the service
+
+---
+
+## 📂 Installed Paths
+
+| Component           | Location                                      |
+| ------------------- | --------------------------------------------- |
+| Binary              | `/usr/local/bin/iot_connector`                |
+| Wrapper Script      | `/usr/local/bin/opcua_wrapper.sh`             |
+| Config File         | `/etc/opcua_connector/config.sh`              |
+| Metadata Folder     | `/etc/opcua_connector/metadata/`              |
+| Certificates Folder | `/etc/opcua_connector/certs/`                 |
+| Systemd Service     | `/etc/systemd/system/opcua_connector.service` |
+
+---
+
+## 🔁 Running as a Service
+
+The `make install` process will automatically:
+
+* Place the service file at `/etc/systemd/system/opcua_connector.service`
+* Reload systemd
+* Enable the service at boot
+* Start the service immediately
+
+To manually control the service:
+
+```bash
+# Check status
+sudo systemctl status opcua_connector.service
+
+# Restart the service
+sudo systemctl restart opcua_connector.service
+
+# Stop the service
+sudo systemctl stop opcua_connector.service
+
+# View logs
+journalctl -fu opcua_connector.service
+```
+
+---
+
+## 🧽 Uninstallation
+
+To remove everything cleanly:
+
+```bash
+sudo make uninstall
+```
+
+This removes:
+
+* `/usr/local/bin/iot_connector`
+* `/usr/local/bin/opcua_wrapper.sh`
+* `/etc/opcua_connector/`
+* `/etc/systemd/system/opcua_connector.service`
+
+## 🛠️ Debugging Section – Recommended Content
+1. Enable Systemd Logging
+
+```bash
+# View service logs (real-time)
+journalctl -u opcua_connector.service -f
+
+# View full log history
+journalctl -u opcua_connector.service
+
+# Check if service is failing
+systemctl status opcua_connector.service
+```
+## MQTT Debugge
+```bash
+mqttx sub -h localhost -p 1883 -t test/topic
+```

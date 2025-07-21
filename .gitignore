@@ -1,4 +1,10 @@
 # exclude
+bin/
+build/
+buffer_data/
+*.o
+*.log
+
 tags
 *.log
 *.guess
