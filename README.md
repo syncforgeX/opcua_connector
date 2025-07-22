@@ -155,7 +155,16 @@ Set in `config.h`:
 
 ### Log to File via rsyslog
 
-#### Step 1: Create Rule
+#### Step 1: Create Log File and Set Permissions
+
+```bash
+sudo rm /var/log/iot_connector.log
+sudo touch /var/log/iot_connector.log
+sudo chown syslog:adm /var/log/iot_connector.log
+sudo chmod 644 /var/log/iot_connector.logLog to File via rsyslog
+```
+
+#### Step 2: Create rsyslog Rule
 
 ```bash
 sudo vi /etc/rsyslog.d/iot_connector.conf
@@ -168,13 +177,13 @@ if $programname == 'iot_connector' then /var/log/iot_connector.log
 & stop
 ```
 
-#### Step 2: Restart rsyslog
+#### Step 3: Restart rsyslog
 
 ```bash
 sudo systemctl restart rsyslog
 ```
 
-#### Step 3: View Logs
+#### Step 4: View Logs
 
 ```bash
 tail -f /var/log/iot_connector.log
