@@ -1,149 +1,70 @@
-# OPC UA Connector
+# OPC UA MQTT IoT Connector
 
-An edge connector for ingesting data from OPC UA servers and publishing it over MQTT. Also includes a REST API for dynamic configuration.
-
----
-
-## 🔧 Installation (Fedora)
-
-Install the required libraries:
-
-```bash
-sudo dnf install opcua library
-sudo dnf install libmicrohttpd-devel
-sudo dnf install cJSON-devel
-sudo dnf install rsyslog
-```
+An edge connector for ingesting data from OPC UA servers and publishing it over MQTT. Includes a REST API for dynamic configuration.
 
 ---
 
-## 🪵 Logging Levels
+## ✨ Features
 
-Set the desired logging level using `CURRENT_LOG_LEVEL`.
-
-| Level              | Enabled Logs                             |
-|-------------------|------------------------------------------|
-| `LOG_LEVEL_DEBUG` | ✅ `log_debug()`<br>✅ `log_info()`<br>✅ `log_warn()`<br>✅ `log_error()` |
-| `LOG_LEVEL_INFO`  | ❌ `log_debug()`<br>✅ `log_info()`<br>✅ `log_warn()`<br>✅ `log_error()` |
-| `LOG_LEVEL_WARN`  | ❌ `log_debug()`<br>❌ `log_info()`<br>✅ `log_warn()`<br>✅ `log_error()` |
-| `LOG_LEVEL_ERROR` | ❌ `log_debug()`<br>❌ `log_info()`<br>❌ `log_warn()`<br>✅ `log_error()` |
+* OPC UA Client integration using `open62541`
+* MQTT publishing using Eclipse Paho
+* REST API using `libmicrohttpd`
+* TLS support for MQTT
+* Systemd integration for auto-start
+* Centralized logging with rsyslog
 
 ---
 
-## 📁 Logging to File
+## 🔧 Installation
 
-If you want to store logs in a traditional log file such as `/var/log/iot_connector.log`:
-
-### 1️⃣ Create rsyslog rule
+### Fedora
 
 ```bash
-sudo vi /etc/rsyslog.d/iot_connector.conf
+sudo dnf install libmicrohttpd-devel cJSON-devel rsyslog
 ```
 
-Paste the following content:
+### Ubuntu / Debian
 
-```
-if $programname == 'iot_connector' then /var/log/iot_connector.log
-& stop
-```
-
-### 2️⃣ Restart rsyslog
+#### Step 1: Install System Dependencies
 
 ```bash
-sudo systemctl restart rsyslog
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  cmake \
+  git \
+  libssl-dev \
+  libmicrohttpd-dev
 ```
 
-### 3️⃣ View Logs
+#### Step 2: Build and Install open62541
 
 ```bash
-tail -f /var/log/iot_connector.log
+git clone https://github.com/open62541/open62541.git
+cd open62541
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+sudo make install
+sudo ldconfig
 ```
 
-Alternatively, view via `journalctl`:
+#### Step 3: Build and Install Paho MQTT C Client
 
 ```bash
-journalctl -t iot_connector -f
+git clone https://github.com/eclipse/paho.mqtt.c.git
+cd paho.mqtt.c
+git checkout v1.3.13
+mkdir build && cd build
+cmake -DPAHO_WITH_SSL=TRUE ..
+make -j$(nproc)
+sudo make install
+sudo ldconfig
 ```
 
 ---
 
-## 🧪 API Usage
-
-### 🔹 POST: Configure Device
-
-```bash
-curl --location 'http://localhost:8080/deviceconfigure' \
---header 'Content-Type: application/json' \
---data '{
-  "device_name": "cnc_device_002",
-  "opcua": {
-    "endpoint_url": "opc.tcp://192.168.1.100:4840",
-    "username": "opcuser",
-    "password": "opcpass"
-  },
-  "mqtt": {
-    "broker_url": "mqtts://broker.example.com:8883",
-    "username": "mqttuser",
-    "password": "mqttpass",
-    "publish_interval_ms": 1000,
-    "base_topic": "factory/cnc/device001",
-    "tls_enabled": true,
-    "certificate_path": "/tmp/device001-cert.pem",
-    "certificate_content": "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgI...YourCAHere...\n-----END CERTIFICATE-----"
-  },
-  "data_points": [
-    {
-      "namespace": 3,
-      "identifier": 1001,
-      "datatype": "int32",
-      "alias": "spindle_speed"
-    },
-    {
-      "namespace": 3,
-      "identifier": 1002,
-      "datatype": "float",
-      "alias": "motor_temp"
-    },
-    {
-      "namespace": 3,
-      "identifier": 1003,
-      "datatype": "boolean",
-      "alias": "alarm_status"
-    }
-  ]
-}'
-```
-
-### 🔹 GET: View Configured Devices
-
-```bash
-curl --location --request GET 'http://10.20.32.132:8081/deviceconfig'
-```
-
-### 🔹 DELETE: Remove a Device
-
-```bash
-curl --location --request DELETE 'http://localhost:8082/deviceconfig/cnc_device_002'
-```
-
-# 🧠 OPC UA MQTT IoT Connector
-
-This project provides an IoT connector that bridges **OPC UA devices** to an **MQTT broker**. It is designed to run as a systemd service on Linux systems, allowing automatic startup and monitoring.
-
----
-
-## 📆 Prerequisites
-
-* GCC / Make
-* `systemd` (for running as a service)
-* `mosquitto` or other MQTT broker (locally or remotely)
-* Access to build tools and necessary libraries (e.g., `libpaho-mqtt`, `open62541`, etc.)
-
----
-
-## ⚙️ Build and Install
-
-Run the following commands to build and install the connector:
+## 🎮 Build and Install Connector
 
 ```bash
 make clean
@@ -152,29 +73,15 @@ sudo make uninstall
 sudo make install
 ```
 
-### 🛠 What Each Command Does
+This will:
 
-* `make clean`
-  Cleans any previous builds.
-
-* `make`
-  Compiles the application and generates the binary.
-
-* `sudo make uninstall`
-  Removes installed files (binary, config, systemd service).
-
-* `sudo make install`
-  Installs the binary, config, wrapper script, and:
-
-  * Creates `/etc/opcua_connector/metadata/` and `/etc/opcua_connector/certs/` directories
-  * Copies config files to `/etc/opcua_connector/`
-  * Installs the systemd service file
-  * Reloads systemd daemon
-  * Enables and starts the service
+* Build the binary
+* Copy files to appropriate system paths
+* Register and start the systemd service
 
 ---
 
-## 📂 Installed Paths
+## 📁 Installed Paths
 
 | Component           | Location                                      |
 | ------------------- | --------------------------------------------- |
@@ -187,36 +94,110 @@ sudo make install
 
 ---
 
-## 🔁 Running as a Service
+## 🌐 REST API Usage
 
-The `make install` process will automatically:
-
-* Place the service file at `/etc/systemd/system/opcua_connector.service`
-* Reload systemd
-* Enable the service at boot
-* Start the service immediately
-
-To manually control the service:
+### Configure Device (POST)
 
 ```bash
-# Check status
-sudo systemctl status opcua_connector.service
+curl -X POST http://localhost:8080/deviceconfigure \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "device_name": "cnc_device_002",
+    "opcua": {
+      "endpoint_url": "opc.tcp://192.168.1.100:4840",
+      "username": "opcuser",
+      "password": "opcpass"
+    },
+    "mqtt": {
+      "broker_url": "mqtts://broker.example.com:8883",
+      "username": "mqttuser",
+      "password": "mqttpass",
+      "publish_interval_ms": 1000,
+      "base_topic": "factory/cnc/device001",
+      "tls_enabled": true,
+      "certificate_path": "/tmp/device001-cert.pem",
+      "certificate_content": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+    },
+    "data_points": [
+      {"namespace": 3, "identifier": 1001, "datatype": "int32", "alias": "spindle_speed"},
+      {"namespace": 3, "identifier": 1002, "datatype": "float", "alias": "motor_temp"},
+      {"namespace": 3, "identifier": 1003, "datatype": "boolean", "alias": "alarm_status"}
+    ]
+  }'
+```
 
-# Restart the service
-sudo systemctl restart opcua_connector.service
+### View Devices (GET)
 
-# Stop the service
-sudo systemctl stop opcua_connector.service
+```bash
+curl http://localhost:8080/deviceconfig
+```
 
-# View logs
-journalctl -fu opcua_connector.service
+### Delete Device (DELETE)
+
+```bash
+curl -X DELETE http://localhost:8080/deviceconfig/cnc_device_002
 ```
 
 ---
 
-## 🧽 Uninstallation
+## 🎓 Logging
 
-To remove everything cleanly:
+### Log Levels
+
+Set in `config.h`:
+
+| Level             | Includes Logs            |
+| ----------------- | ------------------------ |
+| LOG\_LEVEL\_DEBUG | debug, info, warn, error |
+| LOG\_LEVEL\_INFO  | info, warn, error        |
+| LOG\_LEVEL\_WARN  | warn, error              |
+| LOG\_LEVEL\_ERROR | error only               |
+
+### Log to File via rsyslog
+
+#### Step 1: Create Rule
+
+```bash
+sudo vi /etc/rsyslog.d/iot_connector.conf
+```
+
+Add:
+
+```
+if $programname == 'iot_connector' then /var/log/iot_connector.log
+& stop
+```
+
+#### Step 2: Restart rsyslog
+
+```bash
+sudo systemctl restart rsyslog
+```
+
+#### Step 3: View Logs
+
+```bash
+tail -f /var/log/iot_connector.log
+# or
+journalctl -t iot_connector -f
+```
+
+---
+
+## 🔄 Systemd Service
+
+### Control Commands
+
+```bash
+sudo systemctl status opcua_connector.service
+sudo systemctl restart opcua_connector.service
+sudo systemctl stop opcua_connector.service
+journalctl -u opcua_connector.service -f
+```
+
+---
+
+## 🗑 Uninstall
 
 ```bash
 sudo make uninstall
@@ -224,25 +205,14 @@ sudo make uninstall
 
 This removes:
 
-* `/usr/local/bin/iot_connector`
-* `/usr/local/bin/opcua_wrapper.sh`
-* `/etc/opcua_connector/`
-* `/etc/systemd/system/opcua_connector.service`
+* Binary and wrapper
+* Config and metadata
+* Systemd service file
 
-## 🛠️ Debugging Section – Recommended Content
-1. Enable Systemd Logging
+---
 
-```bash
-# View service logs (real-time)
-journalctl -u opcua_connector.service -f
+## 🔎 MQTT Debugging
 
-# View full log history
-journalctl -u opcua_connector.service
-
-# Check if service is failing
-systemctl status opcua_connector.service
-```
-## MQTT Debugge
 ```bash
 mqttx sub -h localhost -p 1883 -t test/topic
 ```
