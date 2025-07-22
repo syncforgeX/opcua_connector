@@ -223,5 +223,9 @@ This removes:
 ## 🔎 MQTT Debugging
 
 ```bash
+mqttx pub -h localhost -p 1883 -t test/topic -m '{"status": "running", "ts": 1721211234567}'
+```
+
+```bash
 mqttx sub -h localhost -p 1883 -t test/topic
 ```
