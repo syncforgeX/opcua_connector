@@ -2,14 +2,14 @@
 
 # MQTT Timer Configuration
 export MQTT_TIMER_INITIAL_START=2
-export MQTT_INTERVAL=2  # 5 sec publish interval
+export MQTT_INTERVAL=5  # 5 sec publish interval user need to provide minimum 1sec
 
 # Reconnect Settings
 export RECONNECT_CNT=4  # 20 attempts to reconnect
 
 # FOCAS Timer Configuration
 export OPCUA_TIMER_INITIAL_START=1
-export OPCUA_INTERVAL=1  # 1 sec polling interval
+#export OPCUA_INTERVAL=1  # default 1 sec polling interval
 
 export OPCUA_FILE_PATH="buffer_data/opcua_buffer.json"
 
@@ -19,7 +19,7 @@ export MQTT_CLIENTID="LocalClient1234"
 export MQTT_TOPIC="test/topic"
 export MQTT_QOS=1
 export MQTT_TIMEOUT=10000  # 10-second timeout
-
+export MQTT_CERTS_PATH="/etc/opcua_connector/certs/mqtt_cert.pem"
 
 
 #!/bin/bash

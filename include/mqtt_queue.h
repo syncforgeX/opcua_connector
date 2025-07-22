@@ -20,7 +20,7 @@ extern Queue queue;
 /* Function prototype */
 void MqttQueue_init(Queue *queue);
 static int isFull(Queue *queue);
-static int isEmpty(Queue *queue);
+int isEmpty(Queue *queue);
 int enqueue(Queue *queue, const char *json_data);
 int dequeue(Queue *queue, char *buffer);
 

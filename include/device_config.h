@@ -3,10 +3,8 @@
 
 #define MAX_DATA_POINTS 50
 
-#include <stdbool.h>
 #include <open62541/client.h>
-
-#define MQTT_CERTS_PATH "/etc/opcua_connector/certs/mqtt_cert.pem"
+#include <stdlib.h>
 
 typedef struct {
     int namespace;
@@ -24,8 +22,10 @@ typedef struct {
 
 typedef struct {
     char broker_url[256];
+    char client_id[70];
     char username[64];
     char password[64];
+    char qos;
     int publish_interval_ms;
     char base_topic[128];
     int tls_enabled;

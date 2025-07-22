@@ -1,18 +1,28 @@
 #include <pthread.h>
-#include "log_utils.h"
-#include "opcua_client.h"
 #include <unistd.h>
-#include <open62541/client_config_default.h>
-#include <open62541/client_highlevel.h>
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <open62541/client_config_default.h>
+#include <open62541/client_highlevel.h>
 #include "device_config.h"
-#include "mqtt.h"
+#include "log_utils.h"
+#include "opcua_client.h"
+#include "mqtt.h" 
 
 #define MAX_RECONNECT_ATTEMPTS 5
 
-void log_opcua_values(OPCUAValue *g_opcua_values) {
+static pthread_t opcua_thread;
+static bool tid_sts;
+
+static timer_t opcua_timerid;                           // Timer ID
+static pthread_t opcua_tid;                             //thread ID
+
+static volatile uint8_t timer_flag = INIT_VAL;           // Flag to be monitored
+static volatile uint8_t timer_count = INIT_VAL;         // Timer count variable
+volatile uint8_t DataDelay_cntr = INIT_VAL;             // Timer count variable
+
+static void log_opcua_values(OPCUAValue *g_opcua_values) {
 	for (int i = 0; i < g_device_config.num_data_points; ++i) {
 		OPCUAValue *val = &g_opcua_values[i];
 		if (!val->ready)
@@ -65,11 +75,10 @@ void log_opcua_values(OPCUAValue *g_opcua_values) {
 	log_debug("\n");
 }
 
-void *opcua_client_thread(void *arg) {
+static void *opcua_client_thread(void *arg) {
 	OPCUAValue g_opcua_values[MAX_DATA_POINTS];
-	bool *tid_sts = (bool *)arg;
 	log_info("OPC UA thread started ......");
-
+	bool *tid_sts = (bool *)arg;
 	UA_Client *client = NULL;
 	UA_StatusCode status;
 	int reconnect_attempts = 0;
@@ -97,7 +106,7 @@ void *opcua_client_thread(void *arg) {
 				   log_error("Max reconnection attempts reached. Giving up.");
 				   break;
 				   }*/
-				sleep(2);
+				sleep(1);
 				continue;
 			}
 
@@ -164,11 +173,11 @@ void *opcua_client_thread(void *arg) {
 			UA_Variant_clear(&value);
 		}
 
-		log_opcua_values(g_opcua_values);//To print all stored OPC UA values (g_opcua_values[]) 
+		//log_opcua_values(g_opcua_values);//To print all stored OPC UA values (g_opcua_values[]) 
 		if(data_collection(g_opcua_values)){
 			log_error("ERROR: Parse Payload data_collection failed to Process");
 		}
-		sleep(g_device_config.mqtt.publish_interval_ms / 1000); // avoid busy polling
+		sleep(MQTT_INTERVAL); // 1 sec once polling avoid busy polling
 	}
 
 	if (client) {
@@ -181,25 +190,18 @@ void *opcua_client_thread(void *arg) {
 	return NULL;
 }
 
-static timer_t opcua_timerid;                           // Timer ID
-static pthread_t opcua_tid;                             //thread ID
-
-static volatile uint8_t timer_flag = INIT_VAL;           // Flag to be monitored
-static volatile uint8_t timer_count = INIT_VAL;         // Timer count variable
-
 // Timer handler function
 static void opcua_timer_handler(union sigval sv) {
         timer_count++;                                  // Increment the timer count every 1 second
-        DataDelay_cntr++;                               // free running counter for data delay
+        DataDelay_cntr++;                               // free running counter for data delay  
         // printf("Timer callback: Timer count = %d\n", timer_count);
-
-        // If the timer count completes 1 second, set the timer_flag
+  /*                                                      // If the timer count completes 1 second, set the timer_flag
         if (timer_count >= 1) {
                 if(!timer_flag)                         //if timer is 0 then only flag change to 1 poll start
                         timer_flag = SET;               // Set the timer_flag
 
                 timer_count = CLEAR;                    // Reset the timer count for the next cycle
-        }
+        }*/
 }
 
 // Initialization function
@@ -222,7 +224,7 @@ static bool opcua_timer_init() {
         // Configure the timer: 1-second interval
         its.it_value.tv_sec = OPCUA_TIMER_INITIAL_START;// Initial expiration in seconds
         its.it_value.tv_nsec = 0;                       // Initial expiration in nanoseconds
-        its.it_interval.tv_sec = OPCUA_INTERVAL;        // Periodic interval in seconds
+        its.it_interval.tv_sec = 1;        // Periodic interval in seconds
         its.it_interval.tv_nsec = 0;                    // Periodic interval in nanoseconds
 
         // Start the timer
@@ -231,8 +233,51 @@ static bool opcua_timer_init() {
                 return ENOT_OK;
         }
 
-        printf("Timer initialized and started.\n");
+        log_debug("Timer initialized and started.");
         return E_OK;
 }
 
+uint8_t opcua_init(){
+        int8_t ret = CLEAR;
 
+        tid_sts = 1;
+        // OPC UA Worker Thread
+        if (pthread_create(&opcua_thread, NULL, opcua_client_thread, &tid_sts) != 0) {
+                log_error("Failed to create OPC UA thread");
+                return 1;
+        }
+
+        ret = opcua_timer_init(&opcua_timerid); // Initialize the timer
+        if(ret){
+                return ENOT_OK;
+        }
+        log_debug("opcua timer initializion successfully");
+
+        return E_OK;
+}
+
+// Timer deinitialization function
+static void opcua_timer_deinit() {
+        // Check if timer exists and delete it
+        if (opcua_timerid) {
+                if (timer_delete(opcua_timerid) == -1) {
+                        log_error("Failed to delete opcua timer");
+                } else {
+                        log_debug("opcua timer deleted successfully.");
+                }
+        } else {
+                log_debug("No valid opcua timer to delete.");
+        }
+}
+
+// Full deinitialization function
+void opcua_deinit() {
+
+        // Notify thread to stop (if needed)
+        tid_sts = 0;
+        // Wait for thread to exit
+        pthread_join(opcua_thread, NULL);
+
+        opcua_timer_deinit();     // Deinitialize the timer
+        log_info("opcua deinitialized successfully.");
+}

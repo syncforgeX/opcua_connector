@@ -29,7 +29,7 @@ static int isFull(Queue *queue) {
  * @param: queue Pointer to the mqtt queue structure to check.
  * @return: 1 if the queue is empty, 0 otherwise.
  */
-static int isEmpty(Queue *queue) {
+int isEmpty(Queue *queue) {
         return queue->size == 0;
 }
 /**
@@ -47,9 +47,10 @@ int enqueue(Queue *queue, const char *json_data) {
                 //return -1;
         }   
         log_debug("current queue size%d\n ",queue->size);
-        queue->rear = (queue->rear + 1) % QUEUE_CAPACITY;
+
+	queue->rear = (queue->rear + 1) % QUEUE_CAPACITY;
         strncpy(queue->elements[queue->rear].json_data, json_data, MAX_JSON_SIZE - 1); 
-        log_debug("enqeue data %s\n",queue->elements[queue->rear].json_data);
+//        log_debug("enqeue data %s\n",queue->elements[queue->rear].json_data);
         queue->elements[queue->rear].json_data[MAX_JSON_SIZE - 1] = '\0';
         queue->size++;
         return E_OK;
@@ -66,7 +67,7 @@ int dequeue(Queue *queue, char *buffer) {
                 log_error("MQ_ERR: Queue is empty...\n");
                 return ENOT_OK;
         }
-        log_debug("dequeue queue=%s\n",queue->elements[queue->front].json_data);
+  //      log_debug("dequeue queue=%s\n",queue->elements[queue->front].json_data);
         strncpy(buffer, queue->elements[queue->front].json_data, MAX_JSON_SIZE);
         buffer[MAX_JSON_SIZE - 1] = '\0';
         queue->front = (queue->front + 1) % QUEUE_CAPACITY;

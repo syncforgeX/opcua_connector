@@ -6,6 +6,7 @@
 #include "log_utils.h"
 #include "mqtt.h"
 #include "mqtt_queue.h"
+#include "device_config.h"
 
 mqtt_data_st mqtt_data = { .json_payload = "", .json_ready = false };
 
@@ -18,9 +19,11 @@ static pthread_mutex_t data_mutex; // Mutex for thread-safe access to the data
 static pthread_t mqtt_tid;
 static volatile char mqtt_flag = INIT_VAL; //based timer handler to set 1
 volatile char file_flag ;
+
 // MQTT client handle
 static MQTTClient client;
 extern mqtt_data_st mqtt_data;
+extern volatile uint8_t DataDelay_cntr;
 
 /**
  * @brief Publishes a message to the MQTT broker on a predefined topic.
@@ -33,14 +36,14 @@ void publish_message(const char *message) {
 
         pubmsg.payload = (void *)message;
         pubmsg.payloadlen = (int)strlen(message);
-        pubmsg.qos = QOS;
+        pubmsg.qos = g_device_config.mqtt.qos;
         pubmsg.retained = 0;
 
-        int rc = MQTTClient_publishMessage(client, TOPIC, &pubmsg, &token);
+        int rc = MQTTClient_publishMessage(client, g_device_config.mqtt.base_topic, &pubmsg, &token);
         if (rc != MQTTCLIENT_SUCCESS) {
-                fprintf(stderr, "Failed to publish message: %s (Error: %d)\n", message, rc);
+                log_error("Failed to publish message: %s (Error: %d)", message, rc);
         } else {
-                log_debug("Message published: %s\n", message);
+                log_debug("Message published: %s", message);
                 MQTTClient_waitForCompletion(client, token, TIMEOUT);
         }   
 }
@@ -72,7 +75,7 @@ static int reconnect_mqtt() {
 
         ret = MQTTClient_connect(client, &conn_opts);
         if (ret != MQTTCLIENT_SUCCESS) {
-                fprintf(stderr, "Failed to reconnect to broker. Error code: %d\n", ret);
+		log_error("Failed to reconnect to broker. Error code: %d", ret);
                 mqtt_exp++;
                 return ENOT_OK;
         }
@@ -80,7 +83,7 @@ static int reconnect_mqtt() {
 L1:
         file_flag = SET;
         mqtt_exp = CLEAR;
-        printf("Reconnected to MQTT broker at %s\n", ADDRESS);
+        log_debug("Reconnected to MQTT broker at %s",g_device_config.mqtt.broker_url);
         return MQTTCLIENT_SUCCESS;
 }
 
@@ -97,7 +100,7 @@ static void mqtt_timer_handler(union sigval arg) {
 static bool mqtt_mutex_init() {
         // Initialize the mutex
         if (pthread_mutex_init(&data_mutex, NULL) != 0) {
-                fprintf(stderr, "Error initializing mutex\n");
+                log_error("Error initializing mutex");
                 return ENOT_OK;
         }
         return E_OK;
@@ -107,7 +110,8 @@ static bool mqtt_client_init() {
         char ret = CLEAR;
 
         // Initialize MQTT client
-        MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+        MQTTClient_create(&client, g_device_config.mqtt.broker_url, g_device_config.mqtt.client_id, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+        //MQTTClient_create(&client, "tcp://localhost:1883", "LocalClient1234", MQTTCLIENT_PERSISTENCE_NONE, NULL);
 
         MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
         conn_opts.keepAliveInterval = 20;
@@ -115,11 +119,12 @@ static bool mqtt_client_init() {
 
         // Connect to the MQTT broker
         if ((ret = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
-                fprintf(stderr, "Failed to connect to broker. Error code: %d\n", ret);
+                log_error("Failed to connect to broker %s  %s client_id %s. Error code: %d",g_device_config.mqtt.broker_url, g_device_config.mqtt.client_id, ret);
                 return ENOT_OK;
         }
         return E_OK;
 }
+
 static bool mqtt_timer_init() {
         // Set up a timer to call the mqtt_timer_handler every 5 seconds
         sev.sigev_notify = SIGEV_THREAD;
@@ -128,7 +133,7 @@ static bool mqtt_timer_init() {
         sev.sigev_value.sival_ptr = &mqtt_timerid;
 
         if (timer_create(CLOCK_REALTIME, &sev, &mqtt_timerid) == -1) {
-                perror("timer_create failed");
+                log_error("timer_create failed");
                 return ENOT_OK;
         }
 
@@ -138,7 +143,7 @@ static bool mqtt_timer_init() {
         ts.it_interval.tv_nsec = 0;
 
         if (timer_settime(mqtt_timerid, 0, &ts, NULL) == -1) {
-                perror("timer_settime failed");
+                log_error("timer_settime failed");
                 return ENOT_OK;
         }
         log_debug("MQTT Timer init done\n");
@@ -154,17 +159,19 @@ static void *mqtt_thread(void *arg) {
                         pthread_mutex_lock(&data_mutex);                                // Lock the mutex before accessing shared data
                         char json_payload[MAX_JSON_SIZE];
 
-                        if (mqtt_data.json_ready) {
+                        if (!isEmpty(&queue)) {
                                 if (MQTTClient_isConnected(client)) {                   // Check if the client is connected to the broker
                                         if (dequeue(&queue, json_payload)) {      // If connected, publish the message
-                                                log_debug("MQ_ERR: Failed to dequeue message\n");
+						mqtt_data.json_ready = false;                   // Reset the flag after sending
+						goto E1;
                                         }
                                         publish_message(json_payload);
                                         mqtt_data.json_ready = false;                   // Reset the flag after sending
                                 } else {                                                // Attempt to reconnect if the client is not connected
                                         if (reconnect_mqtt() == MQTTCLIENT_SUCCESS) {   // If reconnection is successful, publish the message
                                                 if (dequeue(&queue, json_payload)) {
-                                                        log_debug("MQ_ERR: Failed to dequeue message after reconnect \n");
+							mqtt_data.json_ready = false;                   // Reset the flag after sending
+							goto E1;
                                                 }
                                                 publish_message(json_payload);
                                                 mqtt_data.json_ready = false;           // Reset the flag after sending
@@ -173,9 +180,9 @@ static void *mqtt_thread(void *arg) {
                                         }
                                 }
                         } else {
-                                log_debug("JSON payload not ready. Retrying...\n");
+                                log_debug("JSON payload not ready isEmpty . Retrying...\n");
                         }
-
+E1:
                         mqtt_flag = CLEAR;
                         pthread_mutex_unlock(&data_mutex); // Unlock the mutex
                 }
@@ -186,7 +193,7 @@ static bool mqtt_thread_init(){
                 log_error("Failed to create MQTT thread");
                 return ENOT_OK;
         }
-        printf("MQTT Thread init done\n");
+        log_debug("MQTT Thread init done\n");
         return E_OK;
 }
 
@@ -216,12 +223,13 @@ uint8_t mqtt_init() {
         }
         return E_OK;
 }
+
 // Timer deinitialization
 static void mqtt_timer_deinit() {
         if (timer_delete(mqtt_timerid) == -1) {
-                perror("Failed to delete timer");
+                log_error("Failed to delete timer");
         } else {
-                printf("Timer deleted successfully.\n");
+                log_debug("Timer deleted successfully.\n");
         }
 }
 
@@ -231,29 +239,29 @@ static bool  mqtt_client_deinit() {
 
         // Disconnect from the MQTT broker
         if ((ret = MQTTClient_disconnect(client, 10000)) != MQTTCLIENT_SUCCESS) {
-                fprintf(stderr, "Failed to disconnect from broker. Error code: %d\n", ret);
+                log_error("Failed to disconnect from broker. Error code: %d", ret);
                 return ENOT_OK;
         } else {
-                printf("Disconnected from broker.\n");
+                log_debug("Disconnected from broker.");
         }
 
         // Destroy the MQTT client
         MQTTClient_destroy(&client);
 
-        printf("MQTT client destroyed.\n");
+        log_debug("MQTT client destroyed.\n");
         return E_OK;
 }
-
 
 // Deinitialize the mutex
 static void mqtt_mutex_deinit() {
         if (pthread_mutex_destroy(&data_mutex) != 0) {
-                fprintf(stderr, "Error destroying mutex\n");
+                log_error("Error destroying mutex");
                 // Handle error if needed
         } else {
-                printf("Mutex destroyed successfully.\n");
+                log_debug("Mutex destroyed successfully.");
         }
 }
+
 bool mqtt_deinit(){
         // Deinitialize the mutex before exiting
         mqtt_mutex_deinit();
@@ -265,7 +273,7 @@ bool mqtt_deinit(){
 }
 
 // Function to build the JSON payload
-void build_opcua_json_payload(OPCUAValue *g_opcua_values, char *json_payload) {
+static void build_opcua_json_payload(OPCUAValue *g_opcua_values, char *json_payload) {
     char entry[512];
     strcpy(json_payload, "[");  // Start of JSON array
 
@@ -352,39 +360,31 @@ void build_opcua_json_payload(OPCUAValue *g_opcua_values, char *json_payload) {
 
 // Function to handle data enqueueing with delay check
 static uint8_t enqueue_data(char *json_payload) {
+	if (enqueue(&queue, json_payload) == 1) {
+		log_error("ERR: Enqueue failed...");
+		return ENOT_OK;
+	}
 
-        // Enqueue the data every 5 sec
-        if (DataDelay_cntr == MQTT_INTERVAL) {
-                if (enqueue(&queue, json_payload) == 1) {
-                        printf("ERR: Enqueue failed...\n");
-                        DataDelay_cntr = CLEAR;  // Clear the counter after enqueueing
-                        //return 1;
-                }
-        DataDelay_cntr = CLEAR;  // Clear the counter after enqueueing
-        }
-
-        return E_OK;
+	mqtt_data.json_ready = true;
+	return E_OK;
 }
+
 /**
  * @brief Collects machine data, formats it as a JSON payload, and enqueues it for publishing.
  * @param machn_data Pointer to a `machine_data_end` structure containing the machine data to be collected.
  * @return void
  */
-
-// Updated data_collection function
 uint8_t data_collection(OPCUAValue *g_opcua_values) {
 
         // Build the JSON payload
         build_opcua_json_payload(g_opcua_values, mqtt_data.json_payload);
 
-        // Mark the payload as ready
-        mqtt_data.json_ready = true;
-
-	printf("json payload %s\n",mqtt_data.json_payload);
+//	log_debug("json payload %s",mqtt_data.json_payload);
          //Enqueue data if delay condition is met
         if(enqueue_data(mqtt_data.json_payload)){
                 return ENOT_OK;
         }
+
         return E_OK;
 }
 

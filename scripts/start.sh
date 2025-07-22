@@ -1,6 +1,6 @@
 #!/bin/bash
 #set environment variable set
-source ./include/config.sh
+source ./scripts/config.sh
 
 # Step 1: Clean the build
 echo "Cleaning the project..."
