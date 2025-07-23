@@ -13,9 +13,9 @@
 
 static volatile int running = 1;
 
-void handle_signal(int sig) { running = 0; }
+static void handle_signal(int sig) { running = 0; }
 
-void load_device_config() {
+static void load_device_config() {
 	DIR *dir = opendir(METADATA_DIR);
 	if (!dir) {
 		log_error("Metadata directory not found: %s", METADATA_DIR);
@@ -55,28 +55,29 @@ void load_device_config() {
 }
 
 int main() {
+	char ret = 0;
 	openlog("iot_connector", LOG_PID | LOG_CONS, LOG_USER);
 	log_info("Starting IoT connector server...");
 	signal(SIGINT, handle_signal);
 
 	load_device_config();  // <<< Call this before HTTP starts
 
-	if (init_http_servers() != 0) {
-		return 1;
+	ret = init_http_servers();
+	if (ret) {
+		return 0;
 	}
 
-	char ret = 0;
 	ret = opcua_init(); // Create opcua_tid
 	if(ret){
 		goto D_INIT;
 	}
-
 	log_info("opcua initializion successfully");
+
 	ret = mqtt_init();// Initialize mqtt
 	if(ret){
 		goto D_INIT;
 	}
-	log_debug("mqtt initialization is successfully\n");
+	log_info("mqtt initialization is successfully\n");
 
 	// Run until Ctrl+C
 	while (running) {
@@ -84,11 +85,10 @@ int main() {
 	}
 
 D_INIT:
-	mqtt_deinit();
-	opcua_deinit();
-	deinit_http_servers();
 	log_info("Shutting down servers...");
-
+	deinit_http_servers();
+	opcua_deinit();
+	mqtt_deinit();
 	closelog();
 	return 0;
 }

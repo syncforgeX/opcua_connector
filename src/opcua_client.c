@@ -75,13 +75,104 @@ static void log_opcua_values(OPCUAValue *g_opcua_values) {
 	log_debug("\n");
 }
 
+bool opcua_read_values(UA_Client *client, OPCUAValue *out_values, size_t max_points) {
+	bool any_data_ready = false;
+
+	for (int i = 0; i < max_points; ++i) {
+		DataPoint *dp = &g_device_config.data_points[i];
+		OPCUAValue *val_out = &out_values[i];
+		strncpy(val_out->alias, dp->alias, sizeof(val_out->alias) - 1);
+		val_out->ready = false;
+
+		UA_Variant value;
+		UA_Variant_init(&value);
+		UA_NodeId nodeId = UA_NODEID_NUMERIC(dp->namespace, dp->identifier);
+
+		UA_StatusCode read_status = UA_Client_readValueAttribute(client, nodeId, &value);
+
+		if (read_status == UA_STATUSCODE_GOOD && value.type && value.data) {
+			if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_BOOLEAN])) {
+				val_out->type = TYPE_BOOL;
+				val_out->value.v_bool = *(UA_Boolean *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_INT16])) {
+				val_out->type = TYPE_INT16;
+				val_out->value.v_int16 = *(UA_Int16 *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_UINT16])) {
+				val_out->type = TYPE_UINT16;
+				val_out->value.v_uint16 = *(UA_UInt16 *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_INT32])) {
+				val_out->type = TYPE_INT32;
+				val_out->value.v_int32 = *(UA_Int32 *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_UINT32])) {
+				val_out->type = TYPE_UINT32;
+				val_out->value.v_uint32 = *(UA_UInt32 *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_INT64])) {
+				val_out->type = TYPE_INT64;
+				val_out->value.v_int64 = *(UA_Int64 *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_UINT64])) {
+				val_out->type = TYPE_UINT64;
+				val_out->value.v_uint64 = *(UA_UInt64 *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_FLOAT])) {
+				val_out->type = TYPE_FLOAT;
+				val_out->value.v_float = *(UA_Float *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_DOUBLE])) {
+				val_out->type = TYPE_DOUBLE;
+				val_out->value.v_double = *(UA_Double *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_STRING])) {
+				val_out->type = TYPE_STRING;
+				val_out->value.v_string = *(UA_String *)value.data;
+			} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_DATETIME])) {
+				val_out->type = TYPE_DATETIME;
+				val_out->value.v_datetime = *(UA_DateTime *)value.data;
+			} else {
+				val_out->type = TYPE_UNKNOWN;
+			}
+
+			val_out->ready = true;
+			any_data_ready = true;
+
+		} else {
+			log_warn("Failed to read value from node %d:%d — Status: %s",
+					dp->namespace, dp->identifier, UA_StatusCode_name(read_status));
+			val_out->type = TYPE_UNKNOWN;
+			val_out->ready = false;
+
+			if (read_status == UA_STATUSCODE_BADSESSIONCLOSED ||
+					read_status == UA_STATUSCODE_BADCOMMUNICATIONERROR) {
+				log_error("Session closed or communication error. Will reconnect next loop.");
+				UA_Client_disconnect(client);
+				UA_Client_delete(client);
+				return false;
+			}
+		}
+
+		UA_Variant_clear(&value);
+	}
+
+	return any_data_ready;
+}
+
+UA_Client *opcua_connect() {
+	UA_Client *client = UA_Client_new();
+	UA_ClientConfig_setDefault(UA_Client_getConfig(client));
+	log_info("Attempting to connect to OPC UA server: %s", g_device_config.opcua.endpoint_url);
+
+	UA_StatusCode status = UA_Client_connect(client, g_device_config.opcua.endpoint_url);
+	if (status != UA_STATUSCODE_GOOD) {
+		log_error("Connection failed: %s", UA_StatusCode_name(status));
+		UA_Client_delete(client);
+		return NULL;
+	}
+
+	log_info("Connected to OPC UA server successfully");
+	return client;
+}
+
 static void *opcua_client_thread(void *arg) {
-	OPCUAValue g_opcua_values[MAX_DATA_POINTS];
-	log_info("OPC UA thread started ......");
+	log_info("OPC UA thread started...");
 	bool *tid_sts = (bool *)arg;
 	UA_Client *client = NULL;
-	UA_StatusCode status;
-	int reconnect_attempts = 0;
+	OPCUAValue g_opcua_values[MAX_DATA_POINTS];
 
 	while (*tid_sts) {
 		if (!g_device_config.active) {
@@ -90,6 +181,52 @@ static void *opcua_client_thread(void *arg) {
 			continue;
 		}
 
+		// (1) CONNECT OR RECONNECT
+		if (!client) {
+			client = opcua_connect();
+			if (!client) {
+				sleep(1);
+				continue;
+			}
+		}
+
+		// (2) READ VALUES
+		bool success = opcua_read_values(client, g_opcua_values, g_device_config.num_data_points);
+		if (success) {
+			if (data_collection(g_opcua_values)) {
+				log_error("Failed to process OPC UA values");
+			}
+		} else {
+			log_debug("No valid OPC UA values read. Skipping data collection.");
+		}
+
+		sleep(MQTT_INTERVAL); // Polling interval
+	}
+
+	if (client) {
+		UA_Client_disconnect(client);
+		UA_Client_delete(client);
+	}
+
+	log_debug("OPCUA_Client Thread ended.");
+	return NULL;
+}
+
+/*
+static void *opcua_client_thread(void *arg) {
+	OPCUAValue g_opcua_values[MAX_DATA_POINTS];
+	log_info("OPC UA thread started...");
+	bool *tid_sts = (bool *)arg;
+	UA_Client *client = NULL;
+	UA_StatusCode status;
+	while (*tid_sts) {
+		if (!g_device_config.active) {
+			log_debug("OPC UA inactive, waiting...");
+			sleep(1);
+			continue;
+		}
+
+		// (1) CONNECT OR RECONNECT
 		if (!client) {
 			client = UA_Client_new();
 			UA_ClientConfig_setDefault(UA_Client_getConfig(client));
@@ -100,20 +237,14 @@ static void *opcua_client_thread(void *arg) {
 				log_error("Connection failed: %s", UA_StatusCode_name(status));
 				UA_Client_delete(client);
 				client = NULL;
-				/*
-				   reconnect_attempts++;
-				   if (reconnect_attempts > MAX_RECONNECT_ATTEMPTS) {
-				   log_error("Max reconnection attempts reached. Giving up.");
-				   break;
-				   }*/
 				sleep(1);
 				continue;
 			}
-
 			log_info("Connected to OPC UA server successfully");
-			//    reconnect_attempts = 0;
 		}
 
+		bool any_data_ready = false;
+		// (2) READ VALUES
 		for (int i = 0; i < g_device_config.num_data_points; ++i) {
 			DataPoint *dp = &g_device_config.data_points[i];
 			OPCUAValue *val_out = &g_opcua_values[i];
@@ -124,9 +255,10 @@ static void *opcua_client_thread(void *arg) {
 			UA_Variant_init(&value);
 
 			UA_NodeId nodeId = UA_NODEID_NUMERIC(dp->namespace, dp->identifier);
-			status = UA_Client_readValueAttribute(client, nodeId, &value);
+			UA_StatusCode read_status = UA_Client_readValueAttribute(client, nodeId, &value);
 
-			if (status == UA_STATUSCODE_GOOD && value.type && value.data) {
+			if (read_status == UA_STATUSCODE_GOOD && value.type && value.data) {
+				// [same type-handling logic as your code...]
 				if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_BOOLEAN])) {
 					val_out->type = TYPE_BOOL;
 					val_out->value.v_bool = *(UA_Boolean *)value.data;
@@ -165,30 +297,48 @@ static void *opcua_client_thread(void *arg) {
 				}
 
 				val_out->ready = true;
-
+				any_data_ready = true;
 			} else {
+				log_warn("Failed to read value from node %d:%d — Status: %s",
+						dp->namespace, dp->identifier, UA_StatusCode_name(read_status));
 				val_out->type = TYPE_UNKNOWN;
 				val_out->ready = false;
+
+				if (read_status == UA_STATUSCODE_BADSESSIONCLOSED ||
+						read_status == UA_STATUSCODE_BADCOMMUNICATIONERROR) {
+					log_error("Session closed or communication error. Will reconnect next loop.");
+					UA_Client_disconnect(client);
+					UA_Client_delete(client);
+					client = NULL;
+					break; // Exit for loop and go to next while iteration (reconnect)
+				}
 			}
+
 			UA_Variant_clear(&value);
 		}
 
-		//log_opcua_values(g_opcua_values);//To print all stored OPC UA values (g_opcua_values[]) 
-		if(data_collection(g_opcua_values)){
-			log_error("ERROR: Parse Payload data_collection failed to Process");
+		// (3) Process Collected Values
+		if (any_data_ready) {
+			if (data_collection(g_opcua_values)) {
+				log_error("Failed to process OPC UA values");
+			}
+		} else {
+			log_debug("No valid OPC UA values read. Skipping data collection.");
 		}
-		sleep(MQTT_INTERVAL); // 1 sec once polling avoid busy polling
+
+		sleep(MQTT_INTERVAL); // Polling rate
 	}
 
+	// Cleanup
 	if (client) {
 		UA_Client_disconnect(client);
 		UA_Client_delete(client);
 	}
 
-	log_debug("OPCUA_Client Thread unwinded properly ... ");
-
+	log_debug("OPCUA_Client Thread ended.");
 	return NULL;
 }
+*/
 
 // Timer handler function
 static void opcua_timer_handler(union sigval sv) {
@@ -244,7 +394,7 @@ uint8_t opcua_init(){
         // OPC UA Worker Thread
         if (pthread_create(&opcua_thread, NULL, opcua_client_thread, &tid_sts) != 0) {
                 log_error("Failed to create OPC UA thread");
-                return 1;
+                return ENOT_OK;
         }
 
         ret = opcua_timer_init(&opcua_timerid); // Initialize the timer

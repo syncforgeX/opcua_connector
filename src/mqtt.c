@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
@@ -24,6 +25,7 @@ volatile char file_flag ;
 static MQTTClient client;
 extern mqtt_data_st mqtt_data;
 extern volatile uint8_t DataDelay_cntr;
+volatile bool is_reconnecting = false;
 
 /**
  * @brief Publishes a message to the MQTT broker on a predefined topic.
@@ -31,21 +33,28 @@ extern volatile uint8_t DataDelay_cntr;
  * @return void
  */
 void publish_message(const char *message) {
-        MQTTClient_message pubmsg = MQTTClient_message_initializer;
-        MQTTClient_deliveryToken token;
+
+	if (is_reconnecting || client == NULL) {
+		log_debug("Publish skipped: reconnect in progress or client is NULL");
+		return;
+	}
+
+	MQTTClient_message pubmsg = MQTTClient_message_initializer;
+	MQTTClient_deliveryToken token;
 
         pubmsg.payload = (void *)message;
-        pubmsg.payloadlen = (int)strlen(message);
-        pubmsg.qos = g_device_config.mqtt.qos;
-        pubmsg.retained = 0;
+	pubmsg.payloadlen = (int)strlen(message);
+	pubmsg.qos = g_device_config.mqtt.qos;
+	pubmsg.retained = 0;
 
-        int rc = MQTTClient_publishMessage(client, g_device_config.mqtt.base_topic, &pubmsg, &token);
-        if (rc != MQTTCLIENT_SUCCESS) {
-                log_error("Failed to publish message: %s (Error: %d)", message, rc);
-        } else {
-                log_debug("Message published: %s", message);
-                MQTTClient_waitForCompletion(client, token, TIMEOUT);
-        }   
+	int rc = MQTTClient_publishMessage(client, g_device_config.mqtt.base_topic, &pubmsg, &token);
+	if (rc != MQTTCLIENT_SUCCESS) {
+		log_error("Failed to publish message: %s (Error: %d)", message, rc);
+	} else {
+		log_debug("Message published: %s", message);
+		MQTTClient_waitForCompletion(client, token, TIMEOUT);
+	}
+
 }
 
 /**
@@ -53,38 +62,45 @@ void publish_message(const char *message) {
  * @return int Returns `MQTTCLIENT_SUCCESS` on success or an error code on failure.
  */
 static int reconnect_mqtt() {
-        char ret = CLEAR;
+	is_reconnecting = true;
 
-        if(mqtt_exp == RECONNECT_CNT){
-                ret = mqtt_client_deinit();
-                if(ret){
-                        return ENOT_OK;
-                }   
+	char ret = CLEAR;
 
-                ret = mqtt_client_init();
-                if(ret){
-                        mqtt_exp = CLEAR;
-                        return ENOT_OK;
-                }
-                goto L1;
-        }
+	if(mqtt_exp == RECONNECT_CNT){
+		ret = mqtt_client_deinit();  // safe: mutex already held
+		if(ret){
+			is_reconnecting = false;
+			return ENOT_OK;
+		}
 
-        MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
-        conn_opts.keepAliveInterval = 20;
-        conn_opts.cleansession = 1;
+		ret = mqtt_client_init();  // safe: mutex still held
+		if(ret){
+			mqtt_exp = CLEAR;
+			is_reconnecting = false;
+			return ENOT_OK;
+		}
+		goto L1;
+	}
 
-        ret = MQTTClient_connect(client, &conn_opts);
-        if (ret != MQTTCLIENT_SUCCESS) {
+	MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+	conn_opts.keepAliveInterval = 20;
+	conn_opts.cleansession = 1;
+
+	ret = MQTTClient_connect(client, &conn_opts);
+	if (ret != MQTTCLIENT_SUCCESS) {
 		log_error("Failed to reconnect to broker. Error code: %d", ret);
-                mqtt_exp++;
-                return ENOT_OK;
-        }
+		mqtt_exp++;
+		is_reconnecting = false;
+		return ENOT_OK;
+	}
 
 L1:
-        file_flag = SET;
-        mqtt_exp = CLEAR;
-        log_debug("Reconnected to MQTT broker at %s",g_device_config.mqtt.broker_url);
-        return MQTTCLIENT_SUCCESS;
+	file_flag = SET;
+	mqtt_exp = CLEAR;
+	log_debug("Reconnected to MQTT broker at %s", g_device_config.mqtt.broker_url);
+
+	is_reconnecting = false;
+	return MQTTCLIENT_SUCCESS;
 }
 
 /**
@@ -107,22 +123,30 @@ static bool mqtt_mutex_init() {
 }
 
 static bool mqtt_client_init() {
-        char ret = CLEAR;
+    char ret = CLEAR;
 
-        // Initialize MQTT client
-        MQTTClient_create(&client, g_device_config.mqtt.broker_url, g_device_config.mqtt.client_id, MQTTCLIENT_PERSISTENCE_NONE, NULL);
-        //MQTTClient_create(&client, "tcp://localhost:1883", "LocalClient1234", MQTTCLIENT_PERSISTENCE_NONE, NULL);
+    if (!g_device_config.mqtt.broker_url || !g_device_config.mqtt.client_id) {
+        log_error("Invalid MQTT config: broker_url or client_id is NULL");
+        return ENOT_OK;
+    }
 
-        MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
-        conn_opts.keepAliveInterval = 20;
-        conn_opts.cleansession = 1;
+    MQTTClient_create(&client,
+                      g_device_config.mqtt.broker_url,
+                      g_device_config.mqtt.client_id,
+                      MQTTCLIENT_PERSISTENCE_NONE,
+                      NULL);
 
-        // Connect to the MQTT broker
-        if ((ret = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
-                log_error("Failed to connect to broker %s  %s client_id %s. Error code: %d",g_device_config.mqtt.broker_url, g_device_config.mqtt.client_id, ret);
-                return ENOT_OK;
-        }
-        return E_OK;
+    MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+    conn_opts.keepAliveInterval = 20;
+    conn_opts.cleansession = 1;
+
+    if ((ret = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
+		log_error("Failed to connect to broker %s client_id %s. Error code: %d", 
+				g_device_config.mqtt.broker_url, g_device_config.mqtt.client_id, ret);
+    	    return ENOT_OK;
+    }
+
+    return E_OK;
 }
 
 static bool mqtt_timer_init() {
@@ -153,7 +177,7 @@ static bool mqtt_timer_init() {
 /**
  * @brief mqtt thread to check connection status, dequeue messages, and publish to the MQTT broker every 5sec.
  */
-static void *mqtt_thread(void *arg) {
+/*static void *mqtt_thread(void *arg) {
         while(1){
                 if(mqtt_flag){
                         pthread_mutex_lock(&data_mutex);                                // Lock the mutex before accessing shared data
@@ -188,6 +212,53 @@ E1:
                 }
         }
 }
+*/
+
+static void *mqtt_thread(void *arg) {
+    while (1) {
+        char json_payload[MAX_JSON_SIZE];
+
+        pthread_mutex_lock(&data_mutex);
+
+        // Step 1: Check if MQTT client is valid and connected
+        if (!client || !MQTTClient_isConnected(client)) {
+            log_debug("MQTT not connected. Attempting to reconnect...");
+            if (client && reconnect_mqtt() == MQTTCLIENT_SUCCESS) {
+                log_debug("Reconnected to MQTT broker.");
+            } else {
+                log_debug("Reconnect failed. Will retry...");
+                pthread_mutex_unlock(&data_mutex);
+                usleep(200 * 1000); // Short sleep before retry
+                continue; // Go back and retry
+            }
+        }
+
+        // Step 2: Main publish logic
+        bool hasItems = !isEmpty(&queue);
+
+        if (mqtt_flag && hasItems) {
+		log_debug("flag debug %d ", queue.size);
+            if (dequeue(&queue, json_payload) == 0) {
+                publish_message(json_payload);
+                mqtt_data.json_ready = false;
+                mqtt_flag = CLEAR;
+            }
+        }
+
+        // Step 3: Opportunistic publishing
+        else if (!mqtt_flag && queue.size >= 2 && hasItems) {
+            log_debug("Opportunistic publish. Queue size: %d", queue.size);
+            if (dequeue(&queue, json_payload) == 0) {
+                publish_message(json_payload);
+                mqtt_data.json_ready = false;
+            }
+        }
+
+        pthread_mutex_unlock(&data_mutex);
+        usleep(200 * 1000); // 200ms delay
+    }
+}
+
 static bool mqtt_thread_init(){
         if (pthread_create(&mqtt_tid, NULL, mqtt_thread,NULL) != 0) {
                 log_error("Failed to create MQTT thread");
@@ -247,7 +318,7 @@ static bool  mqtt_client_deinit() {
 
         // Destroy the MQTT client
         MQTTClient_destroy(&client);
-
+	client = NULL;
         log_debug("MQTT client destroyed.\n");
         return E_OK;
 }

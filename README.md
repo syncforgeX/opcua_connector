@@ -6,7 +6,7 @@ An edge connector for ingesting data from OPC UA servers and publishing it over 
 
 ## ✨ Features
 
-* OPC UA Client integration using `open62541`
+* OPC UA Client integration using `open62541` open62541 v1.4.12.
 * MQTT publishing using Eclipse Paho
 * REST API using `libmicrohttpd`
 * TLS support for MQTT

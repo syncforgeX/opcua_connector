@@ -2,10 +2,10 @@
 
 # MQTT Timer Configuration
 export MQTT_TIMER_INITIAL_START=2
-export MQTT_INTERVAL=5  # 5 sec publish interval user need to provide minimum 1sec
+export MQTT_INTERVAL=1  # 5 sec publish interval user need to provide minimum 1sec
 
 # Reconnect Settings
-export RECONNECT_CNT=4  # 20 attempts to reconnect
+export RECONNECT_CNT=15  # 20 attempts to reconnect
 
 # FOCAS Timer Configuration
 export OPCUA_TIMER_INITIAL_START=1
@@ -14,13 +14,10 @@ export OPCUA_TIMER_INITIAL_START=1
 export OPCUA_FILE_PATH="buffer_data/opcua_buffer.json"
 
 # MQTT Configuration
-export MQTT_BROKER="tcp://localhost:1883"
-export MQTT_CLIENTID="LocalClient1234"
-export MQTT_TOPIC="test/topic"
-export MQTT_QOS=1
 export MQTT_TIMEOUT=10000  # 10-second timeout
 export MQTT_CERTS_PATH="/etc/opcua_connector/certs/mqtt_cert.pem"
-
+#export QUEUE_CAPACITY=5
+#export MAX_JSON_SIZE=1000
 
 #!/bin/bash
 
@@ -42,11 +39,10 @@ check_env_var "MQTT_TIMER_INITIAL_START"
 check_env_var "MQTT_INTERVAL"
 check_env_var "RECONNECT_CNT"
 check_env_var "OPCUA_FILE_PATH"
-check_env_var "MQTT_BROKER"
-check_env_var "MQTT_CLIENTID"
-check_env_var "MQTT_TOPIC"
-check_env_var "MQTT_QOS"
 check_env_var "MQTT_TIMEOUT"
+check_env_var "MQTT_CERTS_PATH"
+#check_env_var "QUEUE_CAPACITY"
+#check_env_var "MAX_JSON_SIZE"
 
 # If any variable is missing, exit the script
 if [ "$MISSING_VARS" -ne 0 ]; then
