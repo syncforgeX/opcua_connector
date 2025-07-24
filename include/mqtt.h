@@ -22,21 +22,22 @@
 #define ENOT_OK                 1
 
 /* MQTT TIMER CONFIGURATION */
-#define MQTT_TIMER_INITIAL_START (getenv("MQTT_TIMER_INITIAL_START") ? atoi(getenv("MQTT_TIMER_INITIAL_START")) : 2)
-#define MQTT_INTERVAL (getenv("MQTT_INTERVAL") ? atoi(getenv("MQTT_INTERVAL")) : 2) // Publish interval
+#define MQTT_TIMER_INITIAL_START 2
+#define MQTT_INTERVAL 2 // Publish interval
 
 /* RECONNECT SETTINGS */
-#define RECONNECT_CNT (getenv("RECONNECT_CNT") ? atoi(getenv("RECONNECT_CNT")) : 15) // Max reconnection attempts
+#define RECONNECT_CNT 15 // Max reconnection attempts
 
 /* FOCAS TIMER CONFIGURATION */
-#define OPCUA_TIMER_INITIAL_START (getenv("FOCAS_TIMER_INITIAL_START") ? atoi(getenv("FOCAS_TIMER_INITIAL_START")) : 1)
-#define OPCUA_INTERVAL (getenv("FOCAS_INTERVAL") ? atoi(getenv("FOCAS_INTERVAL")) : 1) // Polling interval
+#define OPCUA_TIMER_INITIAL_START 1
+#define OPCUA_INTERVAL 1 // Polling interval
 
-#define OPCUA_FILE_PATH (getenv("OPCUA_FILE_PATH") ? getenv("OPCUA_FILE_PATH") : "buffer_data/focas_buffer.json")
+#define OPCUA_FILE_PATH "buffer_data/focas_buffer.json"
 
 /* MQTT CONFIGURATION */
-#define TIMEOUT (getenv("MQTT_TIMEOUT") ? atol(getenv("MQTT_TIMEOUT")) : 10000L) // 10-second timeout
-#define MQTT_CERTS_PATH (getenv("MQTT_CERTS_PATH") ? getenv("MQTT_CERTS_PATH") : "/etc/opcua_connector/certs/mqtt_cert.pem") //certs path
+#define TIMEOUT 10000L // 10-second timeout
+#define MQTT_CERTS_PATH "/etc/opcua_connector/certs/mqtt_cert.pem" //certs path
+
 //#define QUEUE_CAPACITY (getenv("QUEUE_CAPACITY") ? atoi(getenv("QUEUE_CAPACITY")) : 5) // Max queue size
 //#define MAX_JSON_SIZE (getenv("MAX_JSON_SIZE") ? atoi(getenv("MAX_JSON_SIZE")) : 1000)
 

@@ -161,102 +161,132 @@ static bool mqtt_timer_init() {
                 return ENOT_OK;
         }
 
-        ts.it_value.tv_sec = MQTT_TIMER_INITIAL_START;  // Initial timer set to 5 seconds before the first interrupt
-        ts.it_value.tv_nsec = 0;
-        ts.it_interval.tv_sec = MQTT_INTERVAL;  // Repeat every 5 seconds
-        ts.it_interval.tv_nsec = 0;
+	ts.it_value.tv_sec = MQTT_TIMER_INITIAL_START;  // Initial timer set to 5 seconds before the first interrupt
+	ts.it_value.tv_nsec = 0;
+	ts.it_interval.tv_sec = MQTT_INTERVAL;  // Repeat every 5 seconds
+	ts.it_interval.tv_nsec = 0;
 
-        if (timer_settime(mqtt_timerid, 0, &ts, NULL) == -1) {
-                log_error("timer_settime failed");
-                return ENOT_OK;
-        }
-        log_debug("MQTT Timer init done\n");
-        return E_OK;
+	if (timer_settime(mqtt_timerid, 0, &ts, NULL) == -1) {
+		log_error("timer_settime failed");
+		return ENOT_OK;
+	}
+	log_debug("MQTT Timer init done\n");
+	return E_OK;
 }
 
 /**
  * @brief mqtt thread to check connection status, dequeue messages, and publish to the MQTT broker every 5sec.
  */
 /*static void *mqtt_thread(void *arg) {
-        while(1){
-                if(mqtt_flag){
-                        pthread_mutex_lock(&data_mutex);                                // Lock the mutex before accessing shared data
-                        char json_payload[MAX_JSON_SIZE];
+  while(1){
+  if(mqtt_flag){
+  pthread_mutex_lock(&data_mutex);                                // Lock the mutex before accessing shared data
+  char json_payload[MAX_JSON_SIZE];
 
-                        if (!isEmpty(&queue)) {
-                                if (MQTTClient_isConnected(client)) {                   // Check if the client is connected to the broker
-                                        if (dequeue(&queue, json_payload)) {      // If connected, publish the message
-						mqtt_data.json_ready = false;                   // Reset the flag after sending
-						goto E1;
-                                        }
-                                        publish_message(json_payload);
-                                        mqtt_data.json_ready = false;                   // Reset the flag after sending
-                                } else {                                                // Attempt to reconnect if the client is not connected
-                                        if (reconnect_mqtt() == MQTTCLIENT_SUCCESS) {   // If reconnection is successful, publish the message
-                                                if (dequeue(&queue, json_payload)) {
-							mqtt_data.json_ready = false;                   // Reset the flag after sending
-							goto E1;
-                                                }
-                                                publish_message(json_payload);
-                                                mqtt_data.json_ready = false;           // Reset the flag after sending
-                                        } else {
-                                                log_debug("Unable to reconnect to MQTT broker. Retrying...\n");
-                                        }
-                                }
-                        } else {
-                                log_debug("JSON payload not ready isEmpty . Retrying...\n");
-                        }
+  if (!isEmpty(&queue)) {
+  if (MQTTClient_isConnected(client)) {                   // Check if the client is connected to the broker
+  if (dequeue(&queue, json_payload)) {      // If connected, publish the message
+  mqtt_data.json_ready = false;                   // Reset the flag after sending
+  goto E1;
+  }
+  publish_message(json_payload);
+  mqtt_data.json_ready = false;                   // Reset the flag after sending
+  } else {                                                // Attempt to reconnect if the client is not connected
+  if (reconnect_mqtt() == MQTTCLIENT_SUCCESS) {   // If reconnection is successful, publish the message
+  if (dequeue(&queue, json_payload)) {
+  mqtt_data.json_ready = false;                   // Reset the flag after sending
+  goto E1;
+  }
+  publish_message(json_payload);
+  mqtt_data.json_ready = false;           // Reset the flag after sending
+  } else {
+  log_debug("Unable to reconnect to MQTT broker. Retrying...\n");
+  }
+  }
+  } else {
+  log_debug("JSON payload not ready isEmpty . Retrying...\n");
+  }
 E1:
-                        mqtt_flag = CLEAR;
-                        pthread_mutex_unlock(&data_mutex); // Unlock the mutex
-                }
-        }
+mqtt_flag = CLEAR;
+pthread_mutex_unlock(&data_mutex); // Unlock the mutex
+}
+}
 }
 */
 
 static void *mqtt_thread(void *arg) {
-    while (1) {
-        char json_payload[MAX_JSON_SIZE];
+	bool last_active = false;  // Tracks previous device active state
 
-        pthread_mutex_lock(&data_mutex);
+	while (1) {
+		char json_payload[MAX_JSON_SIZE];
 
-        // Step 1: Check if MQTT client is valid and connected
-        if (!client || !MQTTClient_isConnected(client)) {
-            log_debug("MQTT not connected. Attempting to reconnect...");
-            if (client && reconnect_mqtt() == MQTTCLIENT_SUCCESS) {
-                log_debug("Reconnected to MQTT broker.");
-            } else {
-                log_debug("Reconnect failed. Will retry...");
-                pthread_mutex_unlock(&data_mutex);
-                usleep(200 * 1000); // Short sleep before retry
-                continue; // Go back and retry
-            }
-        }
+		if (g_device_config.active) {
+			// Device is active
+			if (!last_active) {
+				log_info("MQTT device reactivated.");
+				// Initialize new client
+				if (mqtt_client_init() != E_OK) {
+					log_error("Failed to initialize MQTT client on reactivation.");
+					usleep(500 * 1000);
+					continue; // Try again next loop
+				}
+				last_active = true;
+			}
 
-        // Step 2: Main publish logic
-        bool hasItems = !isEmpty(&queue);
+			pthread_mutex_lock(&data_mutex);
 
-        if (mqtt_flag && hasItems) {
-		log_debug("flag debug %d ", queue.size);
-            if (dequeue(&queue, json_payload) == 0) {
-                publish_message(json_payload);
-                mqtt_data.json_ready = false;
-                mqtt_flag = CLEAR;
-            }
-        }
+			// Step 1: MQTT reconnect logic
+			if (!client || !MQTTClient_isConnected(client)) {
+				log_debug("MQTT not connected. Attempting to reconnect...");
+				if (client && reconnect_mqtt() == MQTTCLIENT_SUCCESS) {
+					log_debug("Reconnected to MQTT broker.");
+				} else {
+					log_debug("Reconnect failed. Will retry...");
+					pthread_mutex_unlock(&data_mutex);
+					usleep(200 * 1000);
+					continue;
+				}
+			}
 
-        // Step 3: Opportunistic publishing
-        else if (!mqtt_flag && queue.size >= 2 && hasItems) {
-            log_debug("Opportunistic publish. Queue size: %d", queue.size);
-            if (dequeue(&queue, json_payload) == 0) {
-                publish_message(json_payload);
-                mqtt_data.json_ready = false;
-            }
-        }
+			// Step 2: Main publish logic
+			bool hasItems = !isEmpty(&queue);
 
-        pthread_mutex_unlock(&data_mutex);
-        usleep(200 * 1000); // 200ms delay
-    }
+			if (mqtt_flag && hasItems) {
+				log_debug("flag debug %d ", queue.size);
+				if (dequeue(&queue, json_payload) == 0) {
+					publish_message(json_payload);
+					mqtt_data.json_ready = false;
+					mqtt_flag = CLEAR;
+				}
+			}
+			// Step 3: Opportunistic publish
+			else if (!mqtt_flag && queue.size >= 2 && hasItems) {
+				log_debug("Opportunistic publish. Queue size: %d", queue.size);
+				if (dequeue(&queue, json_payload) == 0) {
+					publish_message(json_payload);
+					mqtt_data.json_ready = false;
+				}
+			}
+
+			pthread_mutex_unlock(&data_mutex);
+			usleep(200 * 1000); // 200ms delay
+		} else {
+			log_info("MQTT deactivated. Cleaning up...");
+			// Device is inactive
+			if (last_active) {
+
+				pthread_mutex_lock(&data_mutex);
+				if (client) {
+					mqtt_client_deinit();  // Proper disconnect and destroy
+				}
+				pthread_mutex_unlock(&data_mutex);
+
+				last_active = false;
+			}
+
+			usleep(500 * 1000); // Wait before checking again
+		}
+	}
 }
 
 static bool mqtt_thread_init(){

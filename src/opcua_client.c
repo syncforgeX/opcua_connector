@@ -177,6 +177,15 @@ static void *opcua_client_thread(void *arg) {
 	while (*tid_sts) {
 		if (!g_device_config.active) {
 			log_debug("OPC UA inactive, waiting...");
+			if (client) {
+				UA_Client_disconnect(client);
+				UA_Client_delete(client);
+				client = NULL;
+			}
+			// Clear opcua and data point related fields to prevent garbage use
+			memset(&g_device_config.opcua, 0, sizeof(OPCUAConfig));
+			memset(g_device_config.data_points, 0, sizeof(g_device_config.data_points));
+			g_device_config.num_data_points = 0;
 			sleep(1);
 			continue;
 		}

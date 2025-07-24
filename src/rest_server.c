@@ -79,6 +79,10 @@ static enum MHD_Result handle_post_request(void *cls,
 		const char *version,
 		const char *upload_data,
 		size_t *upload_data_size, void **con_cls) {
+
+	g_device_config.active = false;
+	usleep(500 * 1000);
+
 	log_debug("handle_request called for URL: %s ", url);
 	fflush(stdout);
 
@@ -257,7 +261,6 @@ static enum MHD_Result handle_del_request(void *cls, struct MHD_Connection *conn
 		MHD_destroy_response(response);
 		return ret;
 	}
-	memset(&g_device_config, 0, sizeof(g_device_config));
 	g_device_config.active = false;
 
 	log_debug("Device config deleted and deactivate the Thread successfully %s ",path);
