@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define ADDRESS     "mqtts://10.20.30.130:8884"
+#define ADDRESS     "mqtts://10.20.32.132:8883"
 #define CLIENTID    "AsyncClientID"
 #define TOPIC       "sensor/data"
 #define QOS         1

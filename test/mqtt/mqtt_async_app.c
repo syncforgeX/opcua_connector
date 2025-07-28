@@ -8,8 +8,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#define ADDRESS     "mqtts://10.20.30.130:8884"
-#define CLIENTID    "AsyncClientID"
+#define ADDRESS     "mqtts://10.20.32.132:8883"
+#define CLIENTID    "AsyncClientID1i1"
 #define TOPIC       "sensor/data"
 #define QOS         1
 #define TIMEOUT     10000L

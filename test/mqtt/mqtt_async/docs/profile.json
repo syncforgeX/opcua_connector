@@ -1,0 +1,48 @@
+{
+  "device_name": "cnc_device_002",
+  "opcua": {
+    "endpoint_url": "opc.tcp://10.20.32.132:53530/OPCUA/SimulationServer",
+    "username": "opcuser",
+    "password": "opcpass"
+  },
+  "messagebus": {
+    "type": "mqtt",
+    "disabled": false,
+    "protocol": "tcp",
+    "host": "",
+    "port": 1883,
+    "username": "mqttuser",
+    "password": "mqttpass",
+    "secretname": "mqtt-secret",
+    "clientid": "LocalClient1234",
+    "qos": 1,
+    "keepalive": 60,
+    "retained": false,
+    "certfile": "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgI...YourCAHere...\n-----END CERTIFICATE-----",
+    "keyfile": "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgI...YourCAHere...\n-----END CERTIFICATE-----",
+    "skipverify": false,
+    "basetopicprefix": "test/topic",
+    "publish_interval_ms": 1000
+  },
+  "data_points": [
+    {
+      "namespace": 3,
+      "identifier": 1007,
+      "datatype": "Double",
+      "alias": "Constant"
+    },
+    {
+      "namespace": 3,
+      "identifier": 1001,
+      "datatype": "",
+      "alias": "Count"
+    },
+    {
+      "namespace": 3,
+      "identifier": 1002,
+      "datatype": "Double",
+      "alias": "Random"
+    }
+  ]
+}
+
