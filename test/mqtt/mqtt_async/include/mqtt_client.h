@@ -8,22 +8,21 @@
 
 // Structure for MessageBus config
 typedef struct {
-	char *type;
-	bool disabled;
 	char *protocol;
 	char *host;
 	uint16_t port;
 	char *authmode;
-	char *secretname;
 	char *clientid;
 	int qos;
 	int keepalive;
 	bool retained;
 	char *certfile;
 	char *keyfile;
+	char *privateKey;
 	bool skipverify;
 	char *basetopicprefix;
-
+	int buffer_msg;
+	bool cleansession;
 	// Runtime fields
 	MQTTAsync client;
 	char *uri;

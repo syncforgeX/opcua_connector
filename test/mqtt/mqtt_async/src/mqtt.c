@@ -148,9 +148,6 @@ void edgex_bus_init(edgex_bus_t *bus, const char *svcname, DeviceConfig *cfg) {
 	(void)cfg;
 }
 
-#define CA_CERT     "./certs/cacert.pem"
-#define CLIENT_CERT "./certs/clientcert.pem"
-#define CLIENT_KEY  "./certs/clientkey.pem"
 
 edgex_bus_t *mqtt_client_init(DeviceConfig *config, const char *svcname) {
 	int rc;
@@ -165,9 +162,9 @@ edgex_bus_t *mqtt_client_init(DeviceConfig *config, const char *svcname) {
 	if (*prot == '\0' || strcmp(prot, "mqtt") == 0 || strcmp(prot, "tcp") == 0) {
 		prot = "tcp";
 	} else if (strcmp(prot, "ssl") == 0 || strcmp(prot, "tls") == 0 ||
-		   strcmp(prot, "mqtts") == 0 || strcmp(prot, "mqtt+ssl") == 0 ||
-		   strcmp(prot, "tcps") == 0) {
-		prot = "mqtts";
+			strcmp(prot, "mqtts") == 0 || strcmp(prot, "mqtt+ssl") == 0 ||
+			strcmp(prot, "tcps") == 0) {
+		prot = "ssl";
 	} else {
 		fprintf(stderr, "Unsupported MQTT protocol: %s\n", prot);
 		return NULL;
@@ -182,10 +179,10 @@ edgex_bus_t *mqtt_client_init(DeviceConfig *config, const char *svcname) {
 	snprintf(cinfo->uri, urisize, "%s://%s:%d", prot, cinfo->host, cinfo->port);
 
 	create_opts.sendWhileDisconnected = 1;
-	create_opts.maxBufferedMessages = 10;  // ✅ number of messages to store in buffer
+	create_opts.maxBufferedMessages = cinfo->buffer_msg;  // ✅ number of messages to store in buffer
 
 	rc = MQTTAsync_createWithOptions(&cinfo->client, cinfo->uri, cinfo->clientid,
-					MQTTCLIENT_PERSISTENCE_DEFAULT, NULL, &create_opts);
+			MQTTCLIENT_PERSISTENCE_DEFAULT, NULL, &create_opts);
 	if (rc != MQTTASYNC_SUCCESS) {
 		fprintf(stderr, "Failed to create MQTT client: %d\n", rc);
 		free(cinfo->uri);
@@ -194,35 +191,30 @@ edgex_bus_t *mqtt_client_init(DeviceConfig *config, const char *svcname) {
 
 	result = malloc (sizeof (edgex_bus_t));
 	MQTTAsync_setCallbacks(cinfo->client, result, NULL, edgex_bus_mqtt_msgarrvd, NULL);
-	
-	conn_opts.keepAliveInterval = 1;
-	conn_opts.cleansession = 1;
+
+	conn_opts.keepAliveInterval = cinfo->keepalive;
+	conn_opts.cleansession = cinfo->cleansession;
 	conn_opts.automaticReconnect = 1;
 	conn_opts.onSuccess = mqtt_on_connect;
 	conn_opts.onFailure = mqtt_on_connect_failure;
 	conn_opts.context = cinfo;
 	conn_opts.maxInflight = 100;
+
+	if (strcmp(prot, "ssl") == 0) {
+		conn_opts.ssl = &ssl_opts;
+		if (cinfo->certfile) ssl_opts.trustStore = cinfo->certfile;
+		if (cinfo->keyfile) ssl_opts.keyStore = cinfo->keyfile;
+		if (cinfo->privateKey) ssl_opts.privateKey = cinfo->privateKey;
+		ssl_opts.verify = cinfo->skipverify;
+	}
+
 	/*
-	   if (strcmp(prot, "ssl") == 0) {
-	   conn_opts.ssl = &ssl_opts;
-	   if (cinfo->certfile) ssl_opts.trustStore = cinfo->certfile;
-	   if (cinfo->keyfile) ssl_opts.keyStore = cinfo->keyfile;
-	   ssl_opts.verify = 1;
-	   }
-	   
-	  if (strcmp (iot_data_string_map_get_string (cfg, EX_BUS_AUTHMODE), "usernamepassword") == 0)
-  {
-    secrets = edgex_secrets_get (secstore, iot_data_string_map_get_string (cfg, EX_BUS_SECRETNAME));
-    conn_opts.username = iot_data_string_map_get_string (secrets, "username");
-    conn_opts.password = iot_data_string_map_get_string (secrets, "password");
-  }*/
-	ssl_opts.trustStore = CA_CERT;
-	ssl_opts.keyStore = CLIENT_CERT;
-	ssl_opts.privateKey = CLIENT_KEY;
-	ssl_opts.verify = 0;
-	conn_opts.ssl = &ssl_opts;
-
-
+	   if (strcmp (iot_data_string_map_get_string (cfg, EX_BUS_AUTHMODE), "usernamepassword") == 0)
+	   {
+	   secrets = edgex_secrets_get (secstore, iot_data_string_map_get_string (cfg, EX_BUS_SECRETNAME));
+	   conn_opts.username = iot_data_string_map_get_string (secrets, "username");
+	   conn_opts.password = iot_data_string_map_get_string (secrets, "password");
+	   }*/
 	pthread_mutex_init(&cinfo->mtx, NULL);
 	pthread_cond_init(&cinfo->cond, NULL);
 	cinfo->connected = false;
@@ -257,8 +249,8 @@ edgex_bus_t *mqtt_client_init(DeviceConfig *config, const char *svcname) {
 	}else {
 		free (cinfo->uri);
 		free (result);
+		result = NULL;
 		//MQTTAsync_destroy(&cinfo->client);
-		return NULL;
 	}
 
 	return result;

@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define CA_CERT     "./certs/cacert.pem"
+#define CLIENT_CERT "./certs/clientcert.pem"
+#define CLIENT_KEY  "./certs/clientkey.pem"
+
 int main() {
     DeviceConfig config = {0};
 
@@ -17,15 +21,17 @@ int main() {
     config.mqtt.messagebus.port = 8883;
     config.mqtt.messagebus.clientid = "LocalClient1234";
     config.mqtt.messagebus.qos = 1;
-    config.mqtt.messagebus.keepalive = 60;
+    config.mqtt.messagebus.keepalive = 15;
+    config.mqtt.messagebus.cleansession = false;
     config.mqtt.messagebus.retained = true;
-    config.mqtt.messagebus.certfile = "./certs/cacert.pem";
-    config.mqtt.messagebus.keyfile = "./certs/clientkey.pem";
+    config.mqtt.messagebus.certfile = CA_CERT;
+    config.mqtt.messagebus.keyfile = CLIENT_CERT;
+    config.mqtt.messagebus.privateKey = CLIENT_KEY;
     config.mqtt.messagebus.skipverify = false;
     config.mqtt.messagebus.basetopicprefix = "test/topic";
-    config.mqtt.messagebus.type = "mqtt";
     config.mqtt.messagebus.authmode = "usernamepassword";
-    config.mqtt.messagebus.secretname = "mqtt-secret";
+    config.mqtt.messagebus.buffer_msg = 1000;
+
 	
     printf("hello\n");
     // Initialize MQTT
@@ -56,7 +62,7 @@ int main() {
 
 	    bus->postfn(bus, "test/topic/hello", msg);
 
-	    sleep(1);
+	    usleep(100);
     }
     // Clean up
     bus->freefn(bus);
