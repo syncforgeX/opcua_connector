@@ -18,7 +18,7 @@ int main() {
     config.mqtt.messagebus.clientid = "LocalClient1234";
     config.mqtt.messagebus.qos = 1;
     config.mqtt.messagebus.keepalive = 60;
-    config.mqtt.messagebus.retained = false;
+    config.mqtt.messagebus.retained = true;
     config.mqtt.messagebus.certfile = "./certs/cacert.pem";
     config.mqtt.messagebus.keyfile = "./certs/clientkey.pem";
     config.mqtt.messagebus.skipverify = false;
@@ -31,20 +31,35 @@ int main() {
     // Initialize MQTT
     edgex_bus_t *bus = mqtt_client_init(&config, "test-service");
     if (bus == NULL) {
-        fprintf(stderr, "❌ MQTT client initialization failed.\n");
-        return EXIT_FAILURE;
+	    fprintf(stderr, "❌ MQTT client initialization failed.\n");
+	    return EXIT_FAILURE;
     }
 
     printf("✅ MQTT client initialized successfully.\n");
 
+
+    char msg[256];
+    time_t now;
+    struct tm *tm_info;
+
     // Example usage:
-    while(1){
-    bus->postfn(bus, "test/topic/hello", "{\"msg\": \"Hello from test client!\"}");
-   usleep(50000); // 50ms
+
+    while (1)
+    {
+	    now = time(NULL);
+	    tm_info = localtime(&now);
+
+	    char timestamp[64];
+	    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
+
+	    snprintf(msg, sizeof(msg), "{\"msg\": \"Hello from test client!\", \"timestamp\": \"%s\"}", timestamp);
+
+	    bus->postfn(bus, "test/topic/hello", msg);
+
+	    sleep(1);
     }
     // Clean up
     bus->freefn(bus);
-
     return EXIT_SUCCESS;
 }
 
