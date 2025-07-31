@@ -5,7 +5,7 @@
 #include <syslog.h>
 #include "device_config.h"
 #include "log_utils.h"
-#include "mqtt.h"
+#include "mqtt_client.h"
 
 DeviceConfig g_device_config = {0}; // Zero-initialize
 				    //
@@ -22,33 +22,41 @@ int write_cert_to_file(const char *path, const char *content) {
 }
 
 void log_device_config(const DeviceConfig *config) {
-	log_debug("Device Name        : %s", config->device_name);
+    log_debug("Device Name        : %s", config->device_name);
 
-	log_debug("OPCUA Endpoint     : %s", config->opcua.endpoint_url);
-	log_debug("OPCUA Username     : %s", config->opcua.username);
-	log_debug("OPCUA Password     : %s", config->opcua.password); // Mask if needed
+    log_debug("OPCUA Endpoint     : %s", config->opcua.endpoint_url);
+    log_debug("OPCUA Username     : %s", config->opcua.username);
+    log_debug("OPCUA Password     : %s", config->opcua.password); // Mask if needed
 
-	log_debug("MQTT Broker URL    : %s", config->mqtt.broker_url);
-	log_debug("MQTT Client ID     : %s", config->mqtt.client_id);
-	log_debug("MQTT Username      : %s", config->mqtt.username);
-	log_debug("MQTT Password      : %s", config->mqtt.password); // Mask if needed
-	log_debug("MQTT QOS	      : %d", config->mqtt.qos);
-	log_debug("MQTT Interval (ms) : %d", config->mqtt.publish_interval_ms);
-	log_debug("MQTT Base Topic    : %s", config->mqtt.base_topic);
-	log_debug("MQTT TLS Enabled   : %s", config->mqtt.tls_enabled ? "true" : "false");
-	log_debug("MQTT Cert Path     : %s", config->mqtt.certificate_path);
+    const MessageBusConfig *mb = &config->mqtt.messagebus;
 
-	log_debug("Data Points (%d):", config->num_data_points);
-	for (int i = 0; i < config->num_data_points; i++) {
-		const DataPoint *dp = &config->data_points[i];
-		log_debug("  [%d] NodeID: ns=%d;i=%d (%s), Type: %s, Alias: %s",
-				i,
-				dp->namespace,
-				dp->identifier,
-				dp->nodeid,
-				dp->datatype,
-				dp->alias);
-	}
+    log_debug("MQTT Protocol      : %s", mb->protocol);
+    log_debug("MQTT Host          : %s", mb->host);
+    log_debug("MQTT Port          : %u", mb->port);
+    log_debug("MQTT Auth Mode     : %s", mb->authmode);
+    log_debug("MQTT Client ID     : %s", mb->clientid);
+    log_debug("MQTT QOS           : %d", mb->qos);
+    log_debug("MQTT Keepalive     : %d", mb->keepalive);
+    log_debug("MQTT Retained      : %s", mb->retained ? "true" : "false");
+    log_debug("MQTT Clean Session : %s", mb->cleansession ? "true" : "false");
+    log_debug("MQTT Skip Verify   : %s", mb->skipverify ? "true" : "false");
+    log_debug("MQTT Base Topic    : %s", mb->basetopicprefix);
+    log_debug("MQTT Buffer Msg    : %d", mb->buffer_msg);
+    log_debug("MQTT Cert File     : %s", mb->certfile);
+    log_debug("MQTT Key File      : %s", mb->keyfile);
+    log_debug("MQTT Private Key   : %s", mb->privateKey);
+
+    log_debug("Data Points (%d):", config->num_data_points);
+    for (int i = 0; i < config->num_data_points; i++) {
+        const DataPoint *dp = &config->data_points[i];
+        log_debug("  [%d] NodeID: ns=%d;i=%d (%s), Type: %s, Alias: %s",
+                  i,
+                  dp->namespace,
+                  dp->identifier,
+                  dp->nodeid,
+                  dp->datatype,
+                  dp->alias);
+    }
 }
 
 int process_json_payload(const char *json) {
@@ -58,13 +66,15 @@ int process_json_payload(const char *json) {
 		return -1;
 	}
 
+	log_debug("Parsed JSON:\n%s", json);
+
 	cJSON *device_name = cJSON_GetObjectItem(root, "device_name");
 	cJSON *opcua = cJSON_GetObjectItem(root, "opcua");
-	cJSON *mqtt = cJSON_GetObjectItem(root, "mqtt");
+	cJSON *msgbus = cJSON_GetObjectItem(root, "messagebus");
 	cJSON *data_points = cJSON_GetObjectItem(root, "data_points");
 
 	if (!cJSON_IsString(device_name) || !cJSON_IsObject(opcua) ||
-			!cJSON_IsObject(mqtt) || !cJSON_IsArray(data_points)) {
+			!cJSON_IsObject(msgbus) || !cJSON_IsArray(data_points)) {
 		syslog(LOG_ERR, "Missing or invalid main fields");
 		cJSON_Delete(root);
 		return -1;
@@ -88,46 +98,45 @@ int process_json_payload(const char *json) {
 		strncpy(g_device_config.opcua.password, opc_pass->valuestring,
 				sizeof(g_device_config.opcua.password) - 1);
 
-	// MQTT
-	cJSON *broker_url = cJSON_GetObjectItem(mqtt, "broker_url");
-	cJSON *client_id = cJSON_GetObjectItem(mqtt, "client_id");
-	cJSON *mqtt_user = cJSON_GetObjectItem(mqtt, "username");
-	cJSON *mqtt_pass = cJSON_GetObjectItem(mqtt, "password");
-	cJSON *qos = cJSON_GetObjectItem(mqtt, "QOS");
-	cJSON *interval = cJSON_GetObjectItem(mqtt, "publish_interval_ms");
-	cJSON *base_topic = cJSON_GetObjectItem(mqtt, "base_topic");
-	cJSON *tls_enabled = cJSON_GetObjectItem(mqtt, "tls_enabled");
-	cJSON *cert_path = cJSON_GetObjectItem(mqtt, "certificate_path");
-	cJSON *cert_content = cJSON_GetObjectItem(mqtt, "certificate_content");
+	// MessageBus (MQTT)
+	MessageBusConfig *m = &g_device_config.mqtt.messagebus;
+#define COPY_STRING_FIELD(obj, key, target) \
+	do { \
+		cJSON *tmp = cJSON_GetObjectItem(obj, key); \
+		if (cJSON_IsString(tmp)) target = strdup(tmp->valuestring); \
+	} while (0)
 
-	if (cJSON_IsString(broker_url))
-		strncpy(g_device_config.mqtt.broker_url, broker_url->valuestring,
-				sizeof(g_device_config.mqtt.broker_url) - 1);
-	if (cJSON_IsString(client_id))
-		strncpy(g_device_config.mqtt.client_id, client_id->valuestring,
-				sizeof(g_device_config.mqtt.client_id) - 1);
-	if (cJSON_IsString(mqtt_user))
-		strncpy(g_device_config.mqtt.username, mqtt_user->valuestring,
-				sizeof(g_device_config.mqtt.username) - 1);
-	if (cJSON_IsString(mqtt_pass))
-		strncpy(g_device_config.mqtt.password, mqtt_pass->valuestring,
-				sizeof(g_device_config.mqtt.password) - 1);
-	if (cJSON_IsNumber(qos))
-		g_device_config.mqtt.qos = qos->valueint;
-	if (cJSON_IsNumber(interval))
-		g_device_config.mqtt.publish_interval_ms = interval->valueint;
-	if (cJSON_IsString(base_topic))
-		strncpy(g_device_config.mqtt.base_topic, base_topic->valuestring,
-				sizeof(g_device_config.mqtt.base_topic) - 1);
-	if (cJSON_IsBool(tls_enabled))
-		g_device_config.mqtt.tls_enabled = tls_enabled->valueint;
-	if (cJSON_IsString(cert_path))
-		strncpy(g_device_config.mqtt.certificate_path, cert_path->valuestring,
-				sizeof(g_device_config.mqtt.certificate_path) - 1);
-	if (cJSON_IsString(cert_content)) {
-		write_cert_to_file(MQTT_CERTS_PATH,
-				cert_content->valuestring);
-	}
+	COPY_STRING_FIELD(msgbus, "protocol", m->protocol);
+	COPY_STRING_FIELD(msgbus, "host", m->host);
+	COPY_STRING_FIELD(msgbus, "authmode", m->authmode);
+	COPY_STRING_FIELD(msgbus, "clientid", m->clientid);
+	COPY_STRING_FIELD(msgbus, "certfile", m->certfile);
+	COPY_STRING_FIELD(msgbus, "keyfile", m->keyfile);
+	COPY_STRING_FIELD(msgbus, "privateKey", m->privateKey);
+	COPY_STRING_FIELD(msgbus, "basetopicprefix", m->basetopicprefix);
+
+	cJSON *port = cJSON_GetObjectItem(msgbus, "port");
+	if (cJSON_IsNumber(port)) m->port = (uint16_t)port->valueint;
+
+	cJSON *qos = cJSON_GetObjectItem(msgbus, "qos");
+	if (cJSON_IsNumber(qos)) m->qos = qos->valueint;
+
+	cJSON *keepalive = cJSON_GetObjectItem(msgbus, "keepalive");
+	if (cJSON_IsNumber(keepalive)) m->keepalive = keepalive->valueint;
+
+	cJSON *retained = cJSON_GetObjectItem(msgbus, "retained");
+	if (cJSON_IsBool(retained)) m->retained = retained->valueint;
+
+	cJSON *skipverify = cJSON_GetObjectItem(msgbus, "skipverify");
+	if (cJSON_IsBool(skipverify)) m->skipverify = skipverify->valueint;
+
+	cJSON *cleansession = cJSON_GetObjectItem(msgbus, "cleansession");
+	if (cJSON_IsBool(cleansession)) m->cleansession = cleansession->valueint;
+
+	cJSON *buffer_msg = cJSON_GetObjectItem(msgbus, "buffer_msg");
+	if (cJSON_IsNumber(buffer_msg)) m->buffer_msg = buffer_msg->valueint;
+
+#undef COPY_STRING_FIELD
 
 	// Parse data_points
 	int count = cJSON_GetArraySize(data_points);
@@ -163,8 +172,9 @@ int process_json_payload(const char *json) {
 
 	log_device_config(&g_device_config);
 	cJSON_Delete(root);
-
 	g_device_config.active = true;
 	log_debug("Device getting Active");
+
 	return 0;
 }
+

@@ -8,8 +8,9 @@
 #include <dirent.h>
 #include "opcua_client.h"
 #include "json_utils.h"
-#include "mqtt.h"
+#include "mqtt_client.h"
 #include "rest_server.h"
+#include "device_config.h"
 
 static volatile int running = 1;
 
@@ -43,7 +44,6 @@ static void load_device_config() {
 			fread(data, 1, size, fp);
 			data[size] = '\0';
 			fclose(fp);
-
 			process_json_payload(data);//parse the config data in globallaly
 
 			free(data);
@@ -54,41 +54,94 @@ static void load_device_config() {
 	closedir(dir);
 }
 
+pthread_t mqtt_tid;
+static bool tid_sts = true;
+edgex_bus_t *bus = NULL;
+
+static void *mqtt_client_thread(void *arg) {
+
+	while (tid_sts) {
+		if (!g_device_config.active) {
+			log_debug("MQTT inactive, waiting...");
+
+			if (bus) {
+				bus->freefn(bus);
+				bus = NULL;
+			}
+
+			sleep(1);
+			continue;
+		}
+
+		if (!bus) {
+			bus = mqtt_client_init(&g_device_config, "test-service");
+			if (bus) {
+				log_error("MQTT init failed, retrying...");
+				sleep(2);
+				continue;
+			}
+
+			log_info("MQTT initialized successfully.");
+		}
+
+		usleep(100);
+	}
+
+	if (bus) {
+		bus->freefn(bus);
+		bus = NULL;
+	}
+
+	log_info("MQTT thread exited.");
+	return NULL;
+}
+
+int mqtt_init() {
+
+	tid_sts = true;
+	if(pthread_create(&mqtt_tid, NULL, mqtt_client_thread, NULL) != 0 ) {
+		log_error("Failed to create MQTT thread");
+		return ENOT_OK;
+	}
+	return E_OK;
+}
+
 int main() {
 	char ret = 0;
 	openlog("iot_connector", LOG_PID | LOG_CONS, LOG_USER);
 	log_info("Starting IoT connector server...");
 	signal(SIGINT, handle_signal);
 
-	load_device_config();  // <<< Call this before HTTP starts
+	load_device_config();  // Might not load anything
 
-	ret = init_http_servers();
+	ret = init_http_servers();  // Start REST servers
 	if (ret) {
+		log_error("Failed to start http Server.");
 		return 0;
 	}
+	log_info("Starting http Server...");
 
-	ret = opcua_init(); // Create opcua_tid
-	if(ret){
-		goto D_INIT;
+	ret = mqtt_init();
+	if (ret) {
+		log_error("Failed to start MQTT thread.");
 	}
-	log_info("opcua initializion successfully");
+	log_info("Starting MQTT thread...");
 
-	ret = mqtt_init();// Initialize mqtt
-	if(ret){
-		goto D_INIT;
+	ret = opcua_init();
+	if (ret) {
+		log_error("Failed to start OPC UA thread.");
 	}
-	log_info("mqtt initialization is successfully\n");
+	log_info("Starting OPC UA thread...");
 
-	// Run until Ctrl+C
 	while (running) {
-		sleep(1);
+		sleep(2);
 	}
 
-D_INIT:
 	log_info("Shutting down servers...");
 	deinit_http_servers();
+	tid_sts = false;
 	opcua_deinit();
-	mqtt_deinit();
 	closelog();
 	return 0;
 }
+

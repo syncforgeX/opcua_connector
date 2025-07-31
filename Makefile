@@ -1,7 +1,7 @@
 # Compiler and flags
 CC = gcc
 CFLAGS = -I./include -DCURRENT_LOG_LEVEL=LOG_LEVEL_DEBUG
-LIBS = -lmicrohttpd -lcjson -lpthread -lopen62541 -lpaho-mqtt3c -lrt
+LIBS = -lmicrohttpd -lcjson -lpthread -lopen62541 -lpaho-mqtt3as -lrt
 
 # Directories
 SRC_DIR = src
@@ -10,7 +10,7 @@ CONFIG_DIR = metadata
 
 # Sources and objects
 SRCS = $(SRC_DIR)/main.c $(SRC_DIR)/rest_server.c $(SRC_DIR)/json_utils.c \
-       $(SRC_DIR)/opcua_client.c $(SRC_DIR)/mqtt.c $(SRC_DIR)/mqtt_queue.c
+       $(SRC_DIR)/opcua_client.c $(SRC_DIR)/mqtt_client.c
 
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(SRCS))
 TARGET = $(BIN_DIR)/iot_connector

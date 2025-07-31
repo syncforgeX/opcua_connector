@@ -99,31 +99,53 @@ This will:
 ### Configure Device (POST)
 
 ```bash
-curl -X POST http://localhost:8080/deviceconfigure \
-  -H 'Content-Type: application/json' \
-  -d '{
+curl --location 'http://10.20.32.132:8080/deviceconfigure' \
+--header 'Content-Type: application/json' \
+--data '{
     "device_name": "cnc_device_002",
     "opcua": {
-      "endpoint_url": "opc.tcp://192.168.1.100:4840",
-      "username": "opcuser",
-      "password": "opcpass"
+        "endpoint_url": "opc.tcp://10.20.32.132:53530/OPCUA/SimulationServer",
+        "username": "opcuser",
+        "password": "opcpass"
     },
-    "mqtt": {
-      "broker_url": "mqtts://broker.example.com:8883",
-      "username": "mqttuser",
-      "password": "mqttpass",
-      "publish_interval_ms": 1000,
-      "base_topic": "factory/cnc/device001",
-      "tls_enabled": true,
-      "certificate_path": "/tmp/device001-cert.pem",
-      "certificate_content": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+    "messagebus": {
+        "protocol": "ssl",
+        "host": "10.20.32.132",
+        "port": 8883,
+        "clientid": "LocalClient1234",
+        "qos": 1,
+        "keepalive": 15,
+        "cleansession": false,
+        "retained": true,
+        "certfile": "./certs/cacert.pem", 
+        "keyfile": "./certs/clientcert.pem",
+        "privateKey": "./certs/clientkey.pem",
+        "skipverify": false,
+        "basetopicprefix": "test/topic",
+        "authmode": "usernamepassword",
+        "buffer_msg": 1000
     },
     "data_points": [
-      {"namespace": 3, "identifier": 1001, "datatype": "int32", "alias": "spindle_speed"},
-      {"namespace": 3, "identifier": 1002, "datatype": "float", "alias": "motor_temp"},
-      {"namespace": 3, "identifier": 1003, "datatype": "boolean", "alias": "alarm_status"}
+        {
+            "namespace": 3,
+            "identifier": 1007,
+            "datatype": "Double",
+            "alias": "Constant"
+        },
+        {
+            "namespace": 3,
+            "identifier": 1001,
+            "datatype": "int32",
+            "alias": "Count"
+        },
+        {
+            "namespace": 3,
+            "identifier": 1002,
+            "datatype": "Double",
+            "alias": "Random"
+        }
     ]
-  }'
+}'
 ```
 
 ### View Devices (GET)

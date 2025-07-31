@@ -1,10 +1,21 @@
 #ifndef DEVICE_CONFIG_H
 #define DEVICE_CONFIG_H
 
-#define MAX_DATA_POINTS 50
+#define MAX_DATA_POINTS 5
 
+#include <MQTTAsync.h>
 #include <open62541/client.h>
 #include <stdlib.h>
+
+#define CLEAR                     0U
+#define SET                       1U
+#define INIT_VAL                  0U
+/* ERROR CODE */
+#define E_OK                    0
+#define ENOT_OK                 1
+
+#define OPCUA_TIMER_INITIAL_START 1
+#define MQTT_INTERVAL 2
 
 typedef struct {
     int namespace;
@@ -20,16 +31,36 @@ typedef struct {
     char password[64];
 } OPCUAConfig;
 
+// Structure for MessageBus config
 typedef struct {
-    char broker_url[256];
-    char client_id[70];
-    char username[64];
-    char password[64];
-    char qos;
-    int publish_interval_ms;
-    char base_topic[128];
-    int tls_enabled;
-    char certificate_path[256];
+        char *protocol;
+        char *host;
+        uint16_t port;
+        char *authmode;
+        char *clientid;
+        int qos;
+        int keepalive;
+        bool retained;
+        char *certfile;
+        char *keyfile;
+        char *privateKey;
+        bool skipverify;
+        char *basetopicprefix;
+        int buffer_msg;
+        bool cleansession;
+        // Runtime fields
+        MQTTAsync client;
+        char *uri;
+        pthread_mutex_t mtx;
+        pthread_cond_t cond;
+        bool connected;  // <-- 🔥 Add this line
+
+} MessageBusConfig;
+
+// Structure for MQTT config (wrapper)
+typedef struct {
+        MessageBusConfig messagebus;
+        // Add other MQTT fields if needed
 } MQTTConfig;
 
 typedef struct {

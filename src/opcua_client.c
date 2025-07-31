@@ -8,7 +8,7 @@
 #include "device_config.h"
 #include "log_utils.h"
 #include "opcua_client.h"
-#include "mqtt.h" 
+#include "mqtt_client.h" 
 
 #define MAX_RECONNECT_ATTEMPTS 5
 
@@ -21,6 +21,8 @@ static pthread_t opcua_tid;                             //thread ID
 static volatile uint8_t timer_flag = INIT_VAL;           // Flag to be monitored
 static volatile uint8_t timer_count = INIT_VAL;         // Timer count variable
 volatile uint8_t DataDelay_cntr = INIT_VAL;             // Timer count variable
+
+mqtt_data_st mqtt_data = { .json_payload = "", .json_ready = false };
 
 static void log_opcua_values(OPCUAValue *g_opcua_values) {
 	for (int i = 0; i < g_device_config.num_data_points; ++i) {
@@ -73,6 +75,105 @@ static void log_opcua_values(OPCUAValue *g_opcua_values) {
 		}
 	}
 	log_debug("\n");
+}
+
+// Function to build the JSON payload
+static void build_opcua_json_payload(OPCUAValue *g_opcua_values, char *json_payload) {
+    char entry[512];
+    strcpy(json_payload, "[");  // Start of JSON array
+
+    for (int i = 0; i < g_device_config.num_data_points; ++i) {
+        OPCUAValue *val = &g_opcua_values[i];
+        if (!val->ready)
+            continue;
+
+        // Get current UTC timestamp
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        struct tm *tm_info = gmtime(&ts.tv_sec);
+        char timestamp[64];
+        snprintf(timestamp, sizeof(timestamp), "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
+                 tm_info->tm_year + 1900, tm_info->tm_mon + 1, tm_info->tm_mday,
+                 tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec, ts.tv_nsec / 1000000);
+
+        // Determine type string and value string
+        const char *type_str = "unknown";
+        char value_str[256] = {0};
+
+        switch (val->type) {
+            case TYPE_BOOL:
+                type_str = "bool";
+                snprintf(value_str, sizeof(value_str), "%s", val->value.v_bool ? "true" : "false");
+                break;
+            case TYPE_INT16:
+                type_str = "int16";
+                snprintf(value_str, sizeof(value_str), "%d", val->value.v_int16);
+                break;
+            case TYPE_UINT16:
+                type_str = "uint16";
+                snprintf(value_str, sizeof(value_str), "%u", val->value.v_uint16);
+                break;
+            case TYPE_INT32:
+                type_str = "int32";
+                snprintf(value_str, sizeof(value_str), "%d", val->value.v_int32);
+                break;
+            case TYPE_UINT32:
+                type_str = "uint32";
+                snprintf(value_str, sizeof(value_str), "%u", val->value.v_uint32);
+                break;
+            case TYPE_INT64:
+                type_str = "int64";
+                snprintf(value_str, sizeof(value_str), "%lld", (long long)val->value.v_int64);
+                break;
+            case TYPE_UINT64:
+                type_str = "uint64";
+                snprintf(value_str, sizeof(value_str), "%llu", (unsigned long long)val->value.v_uint64);
+                break;
+            case TYPE_FLOAT:
+                type_str = "float";
+                snprintf(value_str, sizeof(value_str), "%.3f", val->value.v_float);
+                break;
+            case TYPE_DOUBLE:
+                type_str = "double";
+                snprintf(value_str, sizeof(value_str), "%.6f", val->value.v_double);
+                break;
+            case TYPE_STRING:
+                type_str = "string";
+                snprintf(value_str, sizeof(value_str), "\"%s\"", (const char *)val->value.v_string.data);
+                break;
+            case TYPE_DATETIME:
+                type_str = "datetime";
+                snprintf(value_str, sizeof(value_str), "\"<datetime>\"");  // Format UA_DateTime if needed
+                break;
+            default:
+                snprintf(value_str, sizeof(value_str), "\"unsupported\"");
+                break;
+        }
+
+        // Construct JSON entry
+        snprintf(entry, sizeof(entry),
+                 "{\"tag\":\"%s\",\"type\":\"%s\",\"value\":%s,\"timestamp\":\"%s\",\"quality\":\"good\"}",
+                 val->alias, type_str, value_str, timestamp);
+
+        strcat(json_payload, entry);
+        if (i < g_device_config.num_data_points - 1)
+            strcat(json_payload, ",");
+    }
+
+    strcat(json_payload, "]");
+}
+
+/**
+ * @brief Collects machine data, formats it as a JSON payload, and enqueues it for publishing.
+ * @param machn_data Pointer to a `machine_data_end` structure containing the machine data to be collected.
+ * @return void
+ */
+uint8_t data_collection(OPCUAValue *g_opcua_values, edgex_bus_t *bus) {
+
+        // Build the JSON payload
+        build_opcua_json_payload(g_opcua_values, mqtt_data.json_payload);
+	bus->postfn(bus,g_device_config.mqtt.messagebus.basetopicprefix, mqtt_data.json_payload);
+        return E_OK;
 }
 
 bool opcua_read_values(UA_Client *client, OPCUAValue *out_values, size_t max_points) {
@@ -168,13 +269,14 @@ UA_Client *opcua_connect() {
 	return client;
 }
 
+extern edgex_bus_t *bus;
 static void *opcua_client_thread(void *arg) {
 	log_info("OPC UA thread started...");
-	bool *tid_sts = (bool *)arg;
+//	edgex_bus_t **bus = (edgex_bus_t *)arg;
 	UA_Client *client = NULL;
 	OPCUAValue g_opcua_values[MAX_DATA_POINTS];
 
-	while (*tid_sts) {
+	while (tid_sts) {
 		if (!g_device_config.active) {
 			log_debug("OPC UA inactive, waiting...");
 			if (client) {
@@ -194,15 +296,20 @@ static void *opcua_client_thread(void *arg) {
 		if (!client) {
 			client = opcua_connect();
 			if (!client) {
-				sleep(1);
 				continue;
 			}
+		}
+
+		if(bus == NULL){
+			log_error("mqtt bus is not prepared ");
+			sleep(1);
+			continue;
 		}
 
 		// (2) READ VALUES
 		bool success = opcua_read_values(client, g_opcua_values, g_device_config.num_data_points);
 		if (success) {
-			if (data_collection(g_opcua_values)) {
+			if (data_collection(g_opcua_values, bus)) {
 				log_error("Failed to process OPC UA values");
 			}
 		} else {
@@ -220,134 +327,6 @@ static void *opcua_client_thread(void *arg) {
 	log_debug("OPCUA_Client Thread ended.");
 	return NULL;
 }
-
-/*
-static void *opcua_client_thread(void *arg) {
-	OPCUAValue g_opcua_values[MAX_DATA_POINTS];
-	log_info("OPC UA thread started...");
-	bool *tid_sts = (bool *)arg;
-	UA_Client *client = NULL;
-	UA_StatusCode status;
-	while (*tid_sts) {
-		if (!g_device_config.active) {
-			log_debug("OPC UA inactive, waiting...");
-			sleep(1);
-			continue;
-		}
-
-		// (1) CONNECT OR RECONNECT
-		if (!client) {
-			client = UA_Client_new();
-			UA_ClientConfig_setDefault(UA_Client_getConfig(client));
-			log_info("Attempting to connect to OPC UA server: %s", g_device_config.opcua.endpoint_url);
-			status = UA_Client_connect(client, g_device_config.opcua.endpoint_url);
-
-			if (status != UA_STATUSCODE_GOOD) {
-				log_error("Connection failed: %s", UA_StatusCode_name(status));
-				UA_Client_delete(client);
-				client = NULL;
-				sleep(1);
-				continue;
-			}
-			log_info("Connected to OPC UA server successfully");
-		}
-
-		bool any_data_ready = false;
-		// (2) READ VALUES
-		for (int i = 0; i < g_device_config.num_data_points; ++i) {
-			DataPoint *dp = &g_device_config.data_points[i];
-			OPCUAValue *val_out = &g_opcua_values[i];
-			strncpy(val_out->alias, dp->alias, sizeof(val_out->alias) - 1);
-			val_out->ready = false;
-
-			UA_Variant value;
-			UA_Variant_init(&value);
-
-			UA_NodeId nodeId = UA_NODEID_NUMERIC(dp->namespace, dp->identifier);
-			UA_StatusCode read_status = UA_Client_readValueAttribute(client, nodeId, &value);
-
-			if (read_status == UA_STATUSCODE_GOOD && value.type && value.data) {
-				// [same type-handling logic as your code...]
-				if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_BOOLEAN])) {
-					val_out->type = TYPE_BOOL;
-					val_out->value.v_bool = *(UA_Boolean *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_INT16])) {
-					val_out->type = TYPE_INT16;
-					val_out->value.v_int16 = *(UA_Int16 *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_UINT16])) {
-					val_out->type = TYPE_UINT16;
-					val_out->value.v_uint16 = *(UA_UInt16 *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_INT32])) {
-					val_out->type = TYPE_INT32;
-					val_out->value.v_int32 = *(UA_Int32 *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_UINT32])) {
-					val_out->type = TYPE_UINT32;
-					val_out->value.v_uint32 = *(UA_UInt32 *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_INT64])) {
-					val_out->type = TYPE_INT64;
-					val_out->value.v_int64 = *(UA_Int64 *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_UINT64])) {
-					val_out->type = TYPE_UINT64;
-					val_out->value.v_uint64 = *(UA_UInt64 *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_FLOAT])) {
-					val_out->type = TYPE_FLOAT;
-					val_out->value.v_float = *(UA_Float *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_DOUBLE])) {
-					val_out->type = TYPE_DOUBLE;
-					val_out->value.v_double = *(UA_Double *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_STRING])) {
-					val_out->type = TYPE_STRING;
-					val_out->value.v_string = *(UA_String *)value.data;
-				} else if (UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_DATETIME])) {
-					val_out->type = TYPE_DATETIME;
-					val_out->value.v_datetime = *(UA_DateTime *)value.data;
-				} else {
-					val_out->type = TYPE_UNKNOWN;
-				}
-
-				val_out->ready = true;
-				any_data_ready = true;
-			} else {
-				log_warn("Failed to read value from node %d:%d — Status: %s",
-						dp->namespace, dp->identifier, UA_StatusCode_name(read_status));
-				val_out->type = TYPE_UNKNOWN;
-				val_out->ready = false;
-
-				if (read_status == UA_STATUSCODE_BADSESSIONCLOSED ||
-						read_status == UA_STATUSCODE_BADCOMMUNICATIONERROR) {
-					log_error("Session closed or communication error. Will reconnect next loop.");
-					UA_Client_disconnect(client);
-					UA_Client_delete(client);
-					client = NULL;
-					break; // Exit for loop and go to next while iteration (reconnect)
-				}
-			}
-
-			UA_Variant_clear(&value);
-		}
-
-		// (3) Process Collected Values
-		if (any_data_ready) {
-			if (data_collection(g_opcua_values)) {
-				log_error("Failed to process OPC UA values");
-			}
-		} else {
-			log_debug("No valid OPC UA values read. Skipping data collection.");
-		}
-
-		sleep(MQTT_INTERVAL); // Polling rate
-	}
-
-	// Cleanup
-	if (client) {
-		UA_Client_disconnect(client);
-		UA_Client_delete(client);
-	}
-
-	log_debug("OPCUA_Client Thread ended.");
-	return NULL;
-}
-*/
 
 // Timer handler function
 static void opcua_timer_handler(union sigval sv) {
@@ -401,7 +380,7 @@ uint8_t opcua_init(){
 
         tid_sts = 1;
         // OPC UA Worker Thread
-        if (pthread_create(&opcua_thread, NULL, opcua_client_thread, &tid_sts) != 0) {
+        if (pthread_create(&opcua_thread, NULL, opcua_client_thread, NULL) != 0) {
                 log_error("Failed to create OPC UA thread");
                 return ENOT_OK;
         }
