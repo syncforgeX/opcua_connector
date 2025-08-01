@@ -4,6 +4,14 @@ build/
 buffer_data/
 *.o
 *.log
+# Ignore all shared libs
+*.so*
+
+# EXCEPTIONS: allow all inside lib/
+!lib/
+!lib/**
+!lib/*.so
+!lib/*.so.*
 
 tags
 *.log
@@ -16,7 +24,6 @@ tags
 *.o
 *.a
 *.la
-*.so*
 *.Po
 *.cgen
 *.hgen

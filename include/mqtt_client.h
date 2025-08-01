@@ -7,6 +7,8 @@
 #include <pthread.h>
 #include "device_config.h"
 
+int mqtt_init();
+int mqtt_deinit();
 typedef bool (*edgex_bus_postfn)(void *ctx, const char *topic, const char *msg);
 typedef bool (*edgex_bus_subsfn)(void *ctx, const char *topic);
 typedef void (*edgex_bus_freefn)(void *ctx);

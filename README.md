@@ -251,3 +251,5 @@ mqttx pub -h localhost -p 1883 -t test/topic -m '{"status": "running", "ts": 172
 ```bash
 mqttx sub -h localhost -p 1883 -t test/topic
 ```
+
+export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH

@@ -7,6 +7,7 @@
 #include <MQTTAsync.h>
 #include "mqtt_client.h"
 #include "log_utils.h"
+#include "device_config.h"
 
 #define MQTT_CONNECT_RETRIES 10
 #define MQTT_RETRY_DELAY_MS 500
@@ -264,3 +265,58 @@ edgex_bus_t *mqtt_client_init(DeviceConfig *config, const char *svcname) {
 	return result;
 }
 
+pthread_t mqtt_tid;
+static bool tid_sts;
+edgex_bus_t *bus = NULL;
+
+static void *mqtt_client_thread(void *arg) {
+
+        while (tid_sts) {
+                if (!g_device_config.active) {
+                        log_debug("MQTT inactive, waiting...");
+
+                        if (bus) {
+                                bus->freefn(bus);
+                                bus = NULL;
+                        }
+
+                        sleep(1);
+                        continue;
+                }
+
+                if (!bus) {
+                        bus = mqtt_client_init(&g_device_config, "test-service");
+                        if (bus) {
+                                log_error("MQTT init failed, retrying...");
+                                sleep(2);
+                                continue;
+                        }
+
+                        log_info("MQTT initialized successfully.");
+                }
+
+                usleep(100);
+        }
+
+        if (bus) {
+                bus->freefn(bus);
+                bus = NULL;
+        }
+
+        log_info("MQTT thread exited.");
+        return NULL;
+}
+
+int mqtt_init() {
+
+        tid_sts = true;
+        if(pthread_create(&mqtt_tid, NULL, mqtt_client_thread, NULL) != 0 ) {
+                log_error("Failed to create MQTT thread");
+                return ENOT_OK;
+        }
+        return E_OK;
+}
+
+int mqtt_deinit() {
+	tid_sts = false;
+}
